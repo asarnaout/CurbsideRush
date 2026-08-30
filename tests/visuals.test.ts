@@ -24,7 +24,10 @@ import {
   skyGradientStops,
   type PropScatterInput,
 } from "../app/game/visuals";
-import { ALL_BUILDING_SET_IDS, isBuildingSetId } from "../app/game/buildingSets";
+import {
+  ALL_BUILDING_SET_IDS,
+  isBuildingSetId,
+} from "../app/game/buildingSets";
 import {
   CHARACTER_PALETTE_SLOTS,
   CHARACTER_RAMP_LENGTH,
@@ -142,6 +145,42 @@ describe("map visual palettes", () => {
       nightWindowGlowIntensity: 0.46,
     });
   });
+
+  it("gives the other night cities distinct lit horizons and practical-light tuning", () => {
+    expect(resolveMapVisualPalette("nyc-upper-west-side")).toMatchObject({
+      skyHorizon: "#293d61",
+      fogColor: "#23344f",
+      horizonWindowWarm: "#ffd08a",
+      horizonWindowCool: "#c7e4ff",
+      nightHemiIntensity: 0.68,
+      nightSunIntensity: 0.64,
+      nightBloomThreshold: 0.68,
+      nightBloomWeight: 0.34,
+      nightWindowGlowIntensity: 0.42,
+    });
+    expect(resolveMapVisualPalette("london-south-kensington")).toMatchObject({
+      skyHorizon: "#4a414d",
+      fogColor: "#30303b",
+      silhouetteNear: "#35313d",
+      silhouetteFar: "#504852",
+      horizonWindowWarm: "#f4c982",
+      horizonWindowCool: "#d7e4df",
+      nightBloomThreshold: 0.65,
+      nightBloomWeight: 0.35,
+      nightWindowGlowIntensity: 0.42,
+    });
+    expect(resolveMapVisualPalette("tokyo-setagaya")).toMatchObject({
+      skyHorizon: "#33415f",
+      fogColor: "#252e46",
+      silhouetteNear: "#303a53",
+      silhouetteFar: "#46516d",
+      horizonWindowWarm: "#ffd08a",
+      horizonWindowCool: "#83d8ff",
+      nightBloomThreshold: 0.68,
+      nightBloomWeight: 0.35,
+      nightWindowGlowIntensity: 0.42,
+    });
+  });
 });
 
 // Issue #291: the per-city visual profile widened from #286's bare
@@ -154,13 +193,24 @@ describe("map visual palettes", () => {
 // plus the four-city mesh/material fingerprint in
 // fourCityRenderCharacterization.test.tsx.
 describe("per-city visual profile", () => {
-  const REAL_MAP_PACKS = [NYC_MAP_PACK, LONDON_MAP_PACK, TOKYO_MAP_PACK, CAIRO_MAP_PACK];
+  const REAL_MAP_PACKS = [
+    NYC_MAP_PACK,
+    LONDON_MAP_PACK,
+    TOKYO_MAP_PACK,
+    CAIRO_MAP_PACK,
+  ];
 
   it("gives every shipped map a plate region, drawn from the real four", () => {
-    expect(resolveMapVisualProfile("nyc-upper-west-side").plateRegion).toBe("us");
-    expect(resolveMapVisualProfile("london-south-kensington").plateRegion).toBe("uk");
+    expect(resolveMapVisualProfile("nyc-upper-west-side").plateRegion).toBe(
+      "us",
+    );
+    expect(resolveMapVisualProfile("london-south-kensington").plateRegion).toBe(
+      "uk",
+    );
     expect(resolveMapVisualProfile("tokyo-setagaya").plateRegion).toBe("jp");
-    expect(resolveMapVisualProfile("cairo-central-nile").plateRegion).toBe("eg");
+    expect(resolveMapVisualProfile("cairo-central-nile").plateRegion).toBe(
+      "eg",
+    );
   });
 
   it("only lists real building-set ids, and only for the cities that use instanced sets", () => {
@@ -187,7 +237,9 @@ describe("per-city visual profile", () => {
     expect(
       resolveMapVisualProfile("london-south-kensington").buildingSets.length,
     ).toBe(4);
-    expect(resolveMapVisualProfile("tokyo-setagaya").buildingSets.length).toBe(5);
+    expect(resolveMapVisualProfile("tokyo-setagaya").buildingSets.length).toBe(
+      5,
+    );
     // Every catalogued set belongs to exactly one city's allow-list.
     const claimed = REAL_MAP_PACKS.flatMap(
       (mapPack) => resolveMapVisualProfile(mapPack.id).buildingSets,
@@ -206,7 +258,9 @@ describe("per-city visual profile", () => {
       for (const block of mapPack.geometry.blocks) {
         if (!block.buildingSet) continue;
         expect(
-          allowed.has(block.buildingSet as (typeof ALL_BUILDING_SET_IDS)[number]),
+          allowed.has(
+            block.buildingSet as (typeof ALL_BUILDING_SET_IDS)[number],
+          ),
           `${mapPack.id} block ${block.id} references ${block.buildingSet}`,
         ).toBe(true);
       }
@@ -215,7 +269,9 @@ describe("per-city visual profile", () => {
 
   it("gives every shipped map a non-empty nature-set draw list", () => {
     for (const mapPack of REAL_MAP_PACKS) {
-      expect(resolveMapVisualProfile(mapPack.id).natureSets.length).toBeGreaterThan(0);
+      expect(
+        resolveMapVisualProfile(mapPack.id).natureSets.length,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -235,7 +291,10 @@ describe("per-city visual profile", () => {
 
 describe("fog ranges", () => {
   it("clamps small maps to a gentle band", () => {
-    expect(resolveFogRange({ x: 140, z: 110 })).toEqual({ start: 70, end: 340 });
+    expect(resolveFogRange({ x: 140, z: 110 })).toEqual({
+      start: 70,
+      end: 340,
+    });
   });
 
   it("stretches with a long city but stays bounded", () => {
@@ -331,11 +390,15 @@ describe("horizon silhouettes", () => {
   it("keeps recognisable per-map ingredients", () => {
     const seed = 99;
     const tokyoKinds = new Set(
-      buildHorizonSilhouetteSpec("tokyo-setagaya", seed).map((shape) => shape.kind),
+      buildHorizonSilhouetteSpec("tokyo-setagaya", seed).map(
+        (shape) => shape.kind,
+      ),
     );
     expect(tokyoKinds.has("pylon")).toBe(true);
     const nycKinds = new Set(
-      buildHorizonSilhouetteSpec("nyc-upper-west-side", seed).map((shape) => shape.kind),
+      buildHorizonSilhouetteSpec("nyc-upper-west-side", seed).map(
+        (shape) => shape.kind,
+      ),
     );
     expect(nycKinds.has("box")).toBe(true);
     expect(nycKinds.has("spike")).toBe(true);
@@ -349,28 +412,32 @@ describe("horizon silhouettes", () => {
     expect(cairoKinds.has("pylon")).toBe(true);
   });
 
-  it("seeds Cairo's distant box skyline with deterministic warm and cool rooms", () => {
-    const mapId = "cairo-central-nile";
-    const shapes = buildHorizonSilhouetteSpec(mapId, hashStringToSeed(mapId));
-    const first = buildHorizonWindowLightSpec(mapId, shapes);
-    expect(buildHorizonWindowLightSpec(mapId, shapes)).toEqual(first);
-    expect(first.length).toBeGreaterThan(100);
-    expect(new Set(first.map((light) => light.tone))).toEqual(
-      new Set(["warm", "cool"]),
-    );
-    for (const light of first) {
-      expect(shapes[light.shapeIndex]?.kind).toBe("box");
-      expect(light.u).toBeGreaterThan(0);
-      expect(light.u).toBeLessThan(1);
-      expect(light.v).toBeGreaterThan(0);
-      expect(light.v).toBeLessThan(1);
-    }
-    for (const otherMapId of [
-      "nyc-upper-west-side",
-      "london-south-kensington",
-      "tokyo-setagaya",
-    ]) {
-      expect(buildHorizonWindowLightSpec(otherMapId)).toEqual([]);
+  it("seeds every distant box skyline with its deterministic warm/cool rhythm", () => {
+    const expectedCountRanges = {
+      "nyc-upper-west-side": [450, 750],
+      "london-south-kensington": [120, 250],
+      "tokyo-setagaya": [100, 220],
+      "cairo-central-nile": [200, 400],
+    } as const;
+
+    for (const [mapId, [minimum, maximum]] of Object.entries(
+      expectedCountRanges,
+    )) {
+      const shapes = buildHorizonSilhouetteSpec(mapId, hashStringToSeed(mapId));
+      const first = buildHorizonWindowLightSpec(mapId, shapes);
+      expect(buildHorizonWindowLightSpec(mapId, shapes)).toEqual(first);
+      expect(first.length, mapId).toBeGreaterThanOrEqual(minimum);
+      expect(first.length, mapId).toBeLessThanOrEqual(maximum);
+      expect(new Set(first.map((light) => light.tone)), mapId).toEqual(
+        new Set(["warm", "cool"]),
+      );
+      for (const light of first) {
+        expect(shapes[light.shapeIndex]?.kind, mapId).toBe("box");
+        expect(light.u, mapId).toBeGreaterThan(0);
+        expect(light.u, mapId).toBeLessThan(1);
+        expect(light.v, mapId).toBeGreaterThan(0);
+        expect(light.v, mapId).toBeLessThan(1);
+      }
     }
   });
 });
@@ -397,10 +464,7 @@ describe("texture specs", () => {
     expect(cairoRoad.repairs.length).toBeGreaterThanOrEqual(3);
     expect(cairoRoad.dust.length).toBeGreaterThanOrEqual(70);
 
-    const cairoSidewalk = buildAsphaltTextureSpec(
-      7,
-      CAIRO_SIDEWALK_PROFILE,
-    );
+    const cairoSidewalk = buildAsphaltTextureSpec(7, CAIRO_SIDEWALK_PROFILE);
     expect(CAIRO_SIDEWALK_PROFILE.paverGrid).toBe(true);
     expect(cairoSidewalk.repairs.length).toBeGreaterThanOrEqual(2);
     const grass = buildGrassTextureSpec(11);
@@ -479,7 +543,12 @@ describe("river wave field", () => {
   const NILE = { seed: 4242, flowHeadingRad: Math.PI };
 
   it("quantises every component to a seamless integer lattice", () => {
-    const waves = buildRiverWaveField({ ...NILE, count: 20, minCycles: 1, maxCycles: 9 });
+    const waves = buildRiverWaveField({
+      ...NILE,
+      count: 20,
+      minCycles: 1,
+      maxCycles: 9,
+    });
     expect(waves.length).toBeGreaterThan(15);
     for (const wave of waves) {
       expect(Number.isInteger(wave.cyclesU)).toBe(true);
@@ -513,7 +582,12 @@ describe("river wave field", () => {
   });
 
   it("samples a normalised tile that wraps in both axes", () => {
-    const waves = buildRiverWaveField({ ...NILE, count: 12, minCycles: 1, maxCycles: 6 });
+    const waves = buildRiverWaveField({
+      ...NILE,
+      count: 12,
+      minCycles: 1,
+      maxCycles: 6,
+    });
     const size = 32;
     const field = sampleRiverWaveField(waves, size);
     expect(field).toHaveLength(size * size);
@@ -540,7 +614,12 @@ describe("river wave field", () => {
         peakDirect = Math.max(peakDirect, Math.abs(direct(u / size, v / size)));
       }
     }
-    for (const [u, v] of [[0, 0], [7, 3], [31, 18], [12, 31]] as const) {
+    for (const [u, v] of [
+      [0, 0],
+      [7, 3],
+      [31, 18],
+      [12, 31],
+    ] as const) {
       expect(field[v * size + u]).toBeCloseTo(
         direct(u / size, v / size) / peakDirect,
         5,

@@ -100,9 +100,25 @@ function landmarkPalette(scene: Scene): LondonLandmarkPalette {
   const cached = landmarkPaletteCache.get(scene);
   if (cached) return cached;
   const palette: LondonLandmarkPalette = {
-    trim: makeMaterial(scene, "london-landmark-trim", new Color3(0.82, 0.76, 0.65)),
-    windows: makeMaterial(scene, "london-landmark-windows", new Color3(0.12, 0.2, 0.23)),
-    roof: makeMaterial(scene, "london-landmark-roof", new Color3(0.25, 0.22, 0.2)),
+    trim: makeMaterial(
+      scene,
+      "london-landmark-trim",
+      new Color3(0.82, 0.76, 0.65),
+    ),
+    // These panels are verified glazing on the museums, palace and department
+    // store, not a broad facade slab. A restrained incandescent glow makes the
+    // civic street wall feel occupied while leaving its pale masonry ordinary.
+    windows: makeMaterial(
+      scene,
+      "london-landmark-windows",
+      new Color3(0.12, 0.2, 0.23),
+      new Color3(0.34, 0.25, 0.13),
+    ),
+    roof: makeMaterial(
+      scene,
+      "london-landmark-roof",
+      new Color3(0.25, 0.22, 0.2),
+    ),
   };
   landmarkPaletteCache.set(scene, palette);
   return palette;
@@ -272,7 +288,11 @@ export function buildLondonLandmark(
       // Two stone towers a third of the way in from each bank, joined by a
       // high walkway — the one bridge silhouette on the map that is
       // recognisable from the other side of the city.
-      const stone = makeMaterial(scene, `${landmark.id}-tower-stone`, new Color3(0.7, 0.66, 0.55));
+      const stone = makeMaterial(
+        scene,
+        `${landmark.id}-tower-stone`,
+        new Color3(0.7, 0.66, 0.55),
+      );
       const towerHeight = 44;
       const half = deck.axis.widthM / 2;
       for (const [index, fraction] of ([0.28, 0.72] as const).entries()) {
@@ -300,7 +320,12 @@ export function buildLondonLandmark(
           const spire = createCylinder(
             scene,
             `${landmark.id}-tower-spire-${index}-${side}`,
-            { height: 9, diameterBottom: 6.4, diameterTop: 0.5, tessellation: 4 },
+            {
+              height: 9,
+              diameterBottom: 6.4,
+              diameterTop: 0.5,
+              tessellation: 4,
+            },
             new Vector3(alongM, towerHeight + 6.5, lateralM),
             deck.steel,
             deck.root,
@@ -319,7 +344,9 @@ export function buildLondonLandmark(
         brace.isPickable = false;
       }
       // The two high walkways between the towers.
-      for (const [index, y] of ([towerHeight - 12, towerHeight - 4] as const).entries()) {
+      for (const [index, y] of (
+        [towerHeight - 12, towerHeight - 4] as const
+      ).entries()) {
         const walkway = createBox(
           scene,
           `${landmark.id}-walkway-${index}`,
@@ -348,7 +375,11 @@ export function buildLondonLandmark(
     createBox(
       scene,
       `${landmark.id}-parapet`,
-      { width: landmark.size.x + 1.2, height: 1.05, depth: landmark.size.z + 1.2 },
+      {
+        width: landmark.size.x + 1.2,
+        height: 1.05,
+        depth: landmark.size.z + 1.2,
+      },
       new Vector3(landmark.center.x, height + 0.4, landmark.center.z),
       trim,
     );
@@ -431,7 +462,11 @@ export function buildLondonLandmark(
     createBox(
       scene,
       `${landmark.id}-roofline`,
-      { width: landmark.size.x + 0.8, height: 1.1, depth: landmark.size.z + 0.8 },
+      {
+        width: landmark.size.x + 0.8,
+        height: 1.1,
+        depth: landmark.size.z + 0.8,
+      },
       new Vector3(landmark.center.x, height + 0.45, landmark.center.z),
       trim,
     );
@@ -459,7 +494,10 @@ export function buildLondonLandmark(
   // Generic brick tube-station front. Deliberately no roundel and no
   // "Underground" wordmark: those are protected marks, and a plain brick
   // front with a name board reads as a station perfectly well.
-  if (landmark.kind === "station" && landmark.id !== "london-south-kensington-station") {
+  if (
+    landmark.kind === "station" &&
+    landmark.id !== "london-south-kensington-station"
+  ) {
     createBox(
       scene,
       landmark.id,
@@ -471,14 +509,22 @@ export function buildLondonLandmark(
       scene,
       `${landmark.id}-awning`,
       { width: landmark.size.x + 2, height: 0.35, depth: 2.6 },
-      new Vector3(landmark.center.x, 3.2, landmark.center.z - landmark.size.z / 2 - 1.1),
+      new Vector3(
+        landmark.center.x,
+        3.2,
+        landmark.center.z - landmark.size.z / 2 - 1.1,
+      ),
       roof,
     );
     createBox(
       scene,
       `${landmark.id}-name-board`,
       { width: landmark.size.x * 0.62, height: 1.1, depth: 0.2 },
-      new Vector3(landmark.center.x, 4.4, landmark.center.z - landmark.size.z / 2 - 0.14),
+      new Vector3(
+        landmark.center.x,
+        4.4,
+        landmark.center.z - landmark.size.z / 2 - 0.14,
+      ),
       trim,
     );
     return true;
@@ -489,9 +535,22 @@ export function buildLondonLandmark(
   // is the scenario clock — a tower whose clock disagrees with the sky is the
   // one detail everybody notices.
   if (landmark.id === "london-clock-tower") {
-    const stone = makeMaterial(scene, `${landmark.id}-stone`, new Color3(0.72, 0.67, 0.55));
-    const clockFace = makeMaterial(scene, `${landmark.id}-face`, new Color3(0.93, 0.9, 0.8), new Color3(0.32, 0.29, 0.2));
-    const hand = makeMaterial(scene, `${landmark.id}-hand`, new Color3(0.14, 0.13, 0.11));
+    const stone = makeMaterial(
+      scene,
+      `${landmark.id}-stone`,
+      new Color3(0.72, 0.67, 0.55),
+    );
+    const clockFace = makeMaterial(
+      scene,
+      `${landmark.id}-face`,
+      new Color3(0.93, 0.9, 0.8),
+      new Color3(0.32, 0.29, 0.2),
+    );
+    const hand = makeMaterial(
+      scene,
+      `${landmark.id}-hand`,
+      new Color3(0.14, 0.13, 0.11),
+    );
     const shaftHeight = 66;
     const width = landmark.size.x;
     createBox(
@@ -506,7 +565,11 @@ export function buildLondonLandmark(
         scene,
         `${landmark.id}-band-${band}`,
         { width: width + 0.7, height: 0.7, depth: landmark.size.z + 0.7 },
-        new Vector3(landmark.center.x, (shaftHeight / 6) * band, landmark.center.z),
+        new Vector3(
+          landmark.center.x,
+          (shaftHeight / 6) * band,
+          landmark.center.z,
+        ),
         trim,
       );
     }
@@ -522,12 +585,14 @@ export function buildLondonLandmark(
     // eight — the same clock the HUD is showing.
     const HOUR_HAND_RAD = ((8 + 30 / 60) / 12) * Math.PI * 2;
     const MINUTE_HAND_RAD = (30 / 60) * Math.PI * 2;
-    for (const [index, [dx, dz, yaw]] of ([
-      [0, -1, 0],
-      [0, 1, Math.PI],
-      [-1, 0, -Math.PI / 2],
-      [1, 0, Math.PI / 2],
-    ] as const).entries()) {
+    for (const [index, [dx, dz, yaw]] of (
+      [
+        [0, -1, 0],
+        [0, 1, Math.PI],
+        [-1, 0, -Math.PI / 2],
+        [1, 0, Math.PI / 2],
+      ] as const
+    ).entries()) {
       const faceX = landmark.center.x + dx * (width / 2 + 0.9);
       const faceZ = landmark.center.z + dz * (landmark.size.z / 2 + 0.9);
       const face = createCylinder(
@@ -539,10 +604,12 @@ export function buildLondonLandmark(
       );
       face.rotation.x = Math.PI / 2;
       face.rotation.y = yaw;
-      for (const [handIndex, [angle, length]] of ([
-        [HOUR_HAND_RAD, 1.9],
-        [MINUTE_HAND_RAD, 2.7],
-      ] as const).entries()) {
+      for (const [handIndex, [angle, length]] of (
+        [
+          [HOUR_HAND_RAD, 1.9],
+          [MINUTE_HAND_RAD, 2.7],
+        ] as const
+      ).entries()) {
         const arm = createBox(
           scene,
           `${landmark.id}-clock-${index}-hand-${handIndex}`,
@@ -558,17 +625,27 @@ export function buildLondonLandmark(
       }
       ctx.staticSceneryFreeze.push(face);
     }
-    for (const [index, [step, size]] of ([
-      [0, 1],
-      [1, 0.72],
-      [2, 0.44],
-      [3, 0.18],
-    ] as const).entries()) {
+    for (const [index, [step, size]] of (
+      [
+        [0, 1],
+        [1, 0.72],
+        [2, 0.44],
+        [3, 0.18],
+      ] as const
+    ).entries()) {
       createBox(
         scene,
         `${landmark.id}-spire-${index}`,
-        { width: (width + 2) * size, height: 5, depth: (landmark.size.z + 2) * size },
-        new Vector3(landmark.center.x, belfry + 8 + step * 5, landmark.center.z),
+        {
+          width: (width + 2) * size,
+          height: 5,
+          depth: (landmark.size.z + 2) * size,
+        },
+        new Vector3(
+          landmark.center.x,
+          belfry + 8 + step * 5,
+          landmark.center.z,
+        ),
         roof,
       );
     }
@@ -580,14 +657,30 @@ export function buildLondonLandmark(
   // on every one of its ~90 meshes, and the map cannot afford that for an
   // animation nobody watches at driving speed.
   if (landmark.id === "london-eye-wheel") {
-    const steel = makeMaterial(scene, `${landmark.id}-steel`, new Color3(0.68, 0.72, 0.76));
-    const pod = makeMaterial(scene, `${landmark.id}-pod`, new Color3(0.55, 0.68, 0.74), new Color3(0.1, 0.13, 0.15));
+    // London Eye's white/cool architectural outline is its night silhouette.
+    // One shared emissive steel material lights rim, spokes and supports with
+    // no extra geometry, animation or point lights.
+    const steel = makeMaterial(
+      scene,
+      `${landmark.id}-steel`,
+      new Color3(0.68, 0.72, 0.76),
+      new Color3(0.42, 0.5, 0.62),
+    );
+    const pod = makeMaterial(
+      scene,
+      `${landmark.id}-pod`,
+      new Color3(0.55, 0.68, 0.74),
+      new Color3(0.1, 0.13, 0.15),
+    );
     const radius = landmark.size.x / 2;
     const hubY = radius + 8;
     const root = new TransformNode(`${landmark.id}-root`, scene);
     root.position.set(landmark.center.x, 0, landmark.center.z);
     ctx.staticSceneryFreeze.push(root);
-    for (const [index, angleDeg] of Array.from({ length: 36 }, (_, i) => i * 10).entries()) {
+    for (const [index, angleDeg] of Array.from(
+      { length: 36 },
+      (_, i) => i * 10,
+    ).entries()) {
       const angle = (angleDeg * Math.PI) / 180;
       const next = ((angleDeg + 10) * Math.PI) / 180;
       const ax = Math.cos(angle) * radius;
@@ -651,7 +744,11 @@ export function buildLondonLandmark(
 
   // Battersea-ish: a brick box with four white chimneys.
   if (landmark.id === "london-power-station") {
-    const chimney = makeMaterial(scene, `${landmark.id}-chimney`, new Color3(0.86, 0.85, 0.8));
+    const chimney = makeMaterial(
+      scene,
+      `${landmark.id}-chimney`,
+      new Color3(0.86, 0.85, 0.8),
+    );
     const height = 26;
     createBox(
       scene,
@@ -660,12 +757,14 @@ export function buildLondonLandmark(
       new Vector3(landmark.center.x, height / 2, landmark.center.z),
       material,
     );
-    for (const [index, [dx, dz]] of ([
-      [-0.38, -0.34],
-      [0.38, -0.34],
-      [-0.38, 0.34],
-      [0.38, 0.34],
-    ] as const).entries()) {
+    for (const [index, [dx, dz]] of (
+      [
+        [-0.38, -0.34],
+        [0.38, -0.34],
+        [-0.38, 0.34],
+        [0.38, 0.34],
+      ] as const
+    ).entries()) {
       createCylinder(
         scene,
         `${landmark.id}-chimney-${index}`,
@@ -702,7 +801,12 @@ export function buildLondonLandmark(
     const dome = createCylinder(
       scene,
       `${landmark.id}-dome`,
-      { height: 7.5, diameterTop: landmark.size.x * 0.32, diameterBottom: landmark.size.x * 0.96, tessellation: 24 },
+      {
+        height: 7.5,
+        diameterTop: landmark.size.x * 0.32,
+        diameterBottom: landmark.size.x * 0.96,
+        tessellation: 24,
+      },
       new Vector3(landmark.center.x, drumHeight + 3.6, landmark.center.z),
       roof,
     );
@@ -712,14 +816,20 @@ export function buildLondonLandmark(
 
   // The Gherkin: a lathe-ish tower of stacked, tapering glass drums.
   if (landmark.id === "london-glass-gherkin") {
-    const glass = makeMaterial(scene, `${landmark.id}-glass`, new Color3(0.32, 0.45, 0.5), new Color3(0.05, 0.09, 0.1));
+    const glass = makeMaterial(
+      scene,
+      `${landmark.id}-glass`,
+      new Color3(0.32, 0.45, 0.5),
+      new Color3(0.14, 0.22, 0.28),
+    );
     const bands = 12;
     const height = 132;
     let y = 0;
     for (let band = 0; band < bands; band += 1) {
       // Widest a third of the way up, tapering to a nose — a pickle, not a
       // cone, and the profile is the whole reason it is worth building.
-      const profile = (t: number) => Math.sin(Math.PI * (0.12 + t * 0.82)) ** 0.7;
+      const profile = (t: number) =>
+        Math.sin(Math.PI * (0.12 + t * 0.82)) ** 0.7;
       const lower = profile(band / bands);
       const upper = profile((band + 1) / bands);
       const bandHeight = height / bands;
@@ -744,7 +854,12 @@ export function buildLondonLandmark(
   // the map by a long way, which is what makes the south bank read from the
   // north side of the river.
   if (landmark.id === "london-shard-spire") {
-    const glass = makeMaterial(scene, `${landmark.id}-glass`, new Color3(0.55, 0.66, 0.72), new Color3(0.08, 0.1, 0.12));
+    const glass = makeMaterial(
+      scene,
+      `${landmark.id}-glass`,
+      new Color3(0.55, 0.66, 0.72),
+      new Color3(0.18, 0.25, 0.32),
+    );
     const height = 190;
     const sections = 8;
     for (let section = 0; section < sections; section += 1) {
@@ -784,14 +899,22 @@ export function buildLondonLandmark(
     createBox(
       scene,
       `${landmark.id}-parapet`,
-      { width: landmark.size.x + 1.4, height: 1.5, depth: landmark.size.z + 1.4 },
+      {
+        width: landmark.size.x + 1.4,
+        height: 1.5,
+        depth: landmark.size.z + 1.4,
+      },
       new Vector3(landmark.center.x, height + 0.6, landmark.center.z),
       trim,
     );
     createBox(
       scene,
       `${landmark.id}-pediment`,
-      { width: landmark.size.x * 0.26, height: 4.5, depth: landmark.size.z + 2.2 },
+      {
+        width: landmark.size.x * 0.26,
+        height: 4.5,
+        depth: landmark.size.z + 2.2,
+      },
       new Vector3(landmark.center.x, height + 2.4, landmark.center.z),
       trim,
     );
@@ -827,7 +950,11 @@ export function buildLondonLandmark(
   // A terracotta department store: awnings the whole length of the frontage.
   if (landmark.id === "london-department-store") {
     const height = 28;
-    const awning = makeMaterial(scene, `${landmark.id}-awning`, new Color3(0.16, 0.22, 0.19));
+    const awning = makeMaterial(
+      scene,
+      `${landmark.id}-awning`,
+      new Color3(0.16, 0.22, 0.19),
+    );
     createBox(
       scene,
       landmark.id,
@@ -838,7 +965,11 @@ export function buildLondonLandmark(
     createBox(
       scene,
       `${landmark.id}-cornice`,
-      { width: landmark.size.x + 1.6, height: 1.8, depth: landmark.size.z + 1.6 },
+      {
+        width: landmark.size.x + 1.6,
+        height: 1.8,
+        depth: landmark.size.z + 1.6,
+      },
       new Vector3(landmark.center.x, height + 0.7, landmark.center.z),
       trim,
     );
@@ -847,7 +978,11 @@ export function buildLondonLandmark(
         scene,
         `${landmark.id}-dome-${dome}`,
         { height: 6, diameterTop: 0.6, diameterBottom: 5, tessellation: 12 },
-        new Vector3(landmark.center.x + dome * (landmark.size.x / 5.5), height + 4.5, landmark.center.z),
+        new Vector3(
+          landmark.center.x + dome * (landmark.size.x / 5.5),
+          height + 4.5,
+          landmark.center.z,
+        ),
         roof,
       );
     }
@@ -880,7 +1015,12 @@ export function buildLondonLandmark(
 
   // A fluted Monument column with a gilded urn.
   if (landmark.id === "london-monument-column") {
-    const gilt = makeMaterial(scene, `${landmark.id}-gilt`, new Color3(0.72, 0.58, 0.24), new Color3(0.24, 0.18, 0.05));
+    const gilt = makeMaterial(
+      scene,
+      `${landmark.id}-gilt`,
+      new Color3(0.72, 0.58, 0.24),
+      new Color3(0.24, 0.18, 0.05),
+    );
     createBox(
       scene,
       `${landmark.id}-plinth`,
@@ -924,21 +1064,33 @@ export function buildLondonLandmark(
       scene,
       `${landmark.id}-awning`,
       { width: landmark.size.x + 2, height: 0.35, depth: 2.8 },
-      new Vector3(landmark.center.x, 3.1, landmark.center.z - landmark.size.z / 2 - 1.2),
+      new Vector3(
+        landmark.center.x,
+        3.1,
+        landmark.center.z - landmark.size.z / 2 - 1.2,
+      ),
       roof,
     );
     createBox(
       scene,
       `${landmark.id}-name-board`,
       { width: 9, height: 1.1, depth: 0.2 },
-      new Vector3(landmark.center.x, 4.25, landmark.center.z - landmark.size.z / 2 - 0.14),
+      new Vector3(
+        landmark.center.x,
+        4.25,
+        landmark.center.z - landmark.size.z / 2 - 0.14,
+      ),
       trim,
     );
     return true;
   }
 
   if (landmark.id === "london-exhibition-road-public-space") {
-    const paving = makeMaterial(scene, `${landmark.id}-paving`, new Color3(0.54, 0.54, 0.5));
+    const paving = makeMaterial(
+      scene,
+      `${landmark.id}-paving`,
+      new Color3(0.54, 0.54, 0.5),
+    );
     createBox(
       scene,
       landmark.id,
@@ -999,7 +1151,10 @@ export function buildRegulatorySigns(
     texture.update();
     return texture;
   };
-  const faceMaterial = (name: string, texture: DynamicTexture): StandardMaterial => {
+  const faceMaterial = (
+    name: string,
+    texture: DynamicTexture,
+  ): StandardMaterial => {
     const material = new StandardMaterial(name, scene);
     material.diffuseTexture = texture;
     // Plate recipe: self-illuminated for night legibility, but held below
@@ -1060,16 +1215,21 @@ export function buildRegulatorySigns(
     context.fillText("ENTER", 256, 366);
   });
   // R5-1a: red panel, white border, WRONG WAY.
-  const wrongWayTexture = faceTexture("regsign-wrongway", 512, 512, (context) => {
-    context.fillStyle = signRed;
-    context.fillRect(0, 0, 512, 256);
-    context.strokeStyle = white;
-    context.lineWidth = 8;
-    context.strokeRect(10, 10, 492, 236);
-    context.fillStyle = white;
-    context.font = "bold 68px Arial, sans-serif";
-    context.fillText("WRONG WAY", 256, 130);
-  });
+  const wrongWayTexture = faceTexture(
+    "regsign-wrongway",
+    512,
+    512,
+    (context) => {
+      context.fillStyle = signRed;
+      context.fillRect(0, 0, 512, 256);
+      context.strokeStyle = white;
+      context.lineWidth = 8;
+      context.strokeRect(10, 10, 492, 236);
+      context.fillStyle = white;
+      context.font = "bold 68px Arial, sans-serif";
+      context.fillText("WRONG WAY", 256, 130);
+    },
+  );
   const materials = {
     one_way: faceMaterial("regsign-oneway", oneWayTexture),
     do_not_enter: faceMaterial("regsign-dne", dneTexture),
@@ -1085,14 +1245,7 @@ export function buildRegulatorySigns(
   ): Mesh => {
     // Babylon box faces: 0 = +Z (renders a faceUV region rotated 180deg),
     // 1 = -Z (renders it upright) — pass the +Z region pre-swapped.
-    const faceUV = [
-      plusZ,
-      minusZ,
-      GRAY_UV,
-      GRAY_UV,
-      GRAY_UV,
-      GRAY_UV,
-    ];
+    const faceUV = [plusZ, minusZ, GRAY_UV, GRAY_UV, GRAY_UV, GRAY_UV];
     const mesh = MeshBuilder.CreateBox(
       `prop-master-${name}`,
       { width, height, depth: 0.045, faceUV },
@@ -1301,7 +1454,12 @@ export function buildSpeedLimitSigns(
       // 1:1 — [bottom cap, tube, top cap].
       mesh = MeshBuilder.CreateCylinder(
         `prop-master-speedsign-${figure}`,
-        { height: 0.05, diameter: 0.62, tessellation: 32, faceUV: [gray, gray, design] },
+        {
+          height: 0.05,
+          diameter: 0.62,
+          tessellation: 32,
+          faceUV: [gray, gray, design],
+        },
         scene,
       );
       // Baked rather than set per instance: an instance carries only the
@@ -1373,7 +1531,11 @@ export function buildSpeedLimitSigns(
 
 export function buildLondonStreetFurniture(ctx: LondonLandmarksCtx) {
   const scene = ctx.scene;
-  const iron = makeMaterial(scene, "london-street-iron", new Color3(0.055, 0.065, 0.065));
+  const iron = makeMaterial(
+    scene,
+    "london-street-iron",
+    new Color3(0.055, 0.065, 0.065),
+  );
   // The museum quarter's eight hand-placed heritage lamps. Their head carries
   // the same warm sodium emissive as the scattered `streetlight` line's
   // (`roadsideProps.ts`'s `lampHead`), because they now stand among about a
@@ -1387,8 +1549,16 @@ export function buildLondonStreetFurniture(ctx: LondonLandmarksCtx) {
     new Color3(0.78, 0.72, 0.5),
     new Color3(1.5, 0.86, 0.34),
   );
-  const planter = makeMaterial(scene, "london-planter", new Color3(0.2, 0.34, 0.19));
-  const postBoxRed = makeMaterial(scene, "london-post-box", new Color3(0.62, 0.045, 0.04));
+  const planter = makeMaterial(
+    scene,
+    "london-planter",
+    new Color3(0.2, 0.34, 0.19),
+  );
+  const postBoxRed = makeMaterial(
+    scene,
+    "london-post-box",
+    new Color3(0.62, 0.045, 0.04),
+  );
 
   const lampPositions = LONDON_LAMP_POSITIONS;
   for (let index = 0; index < lampPositions.length; index += 1) {
@@ -1498,7 +1668,11 @@ export function buildLondonStreetFurniture(ctx: LondonLandmarksCtx) {
   // Belisha beacons: a banded black-and-white pole with an amber globe, one
   // pair per zebra crossing. The globe is emissive because the real ones
   // flash, and a dark ball on a pole reads as nothing at all.
-  const beaconWhite = makeMaterial(scene, "london-beacon-white", new Color3(0.88, 0.87, 0.83));
+  const beaconWhite = makeMaterial(
+    scene,
+    "london-beacon-white",
+    new Color3(0.88, 0.87, 0.83),
+  );
   const beaconAmber = makeMaterial(
     scene,
     "london-beacon-amber",

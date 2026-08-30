@@ -84,8 +84,8 @@ rebuilds the whole Cairo network during a ramp transition.
 ## Every building is planned once, before `buildScenarioEnvironment` runs
 
 Two seeding mechanisms coexist: `seededUnit` (`visuals.ts`) is a stateful
-*stream* whose call order is part of its output; `hashStringToSeed` is a
-*pure* per-string hash every other seeded choice uses instead,
+_stream_ whose call order is part of its output; `hashStringToSeed` is a
+_pure_ per-string hash every other seeded choice uses instead,
 order-independent by construction. `geometry/buildingLayout.ts`'s
 `planMapBuildings(mapPack, trafficSeed)` is the **only** permitted consumer
 of the map's `seededUnit` stream for buildings, called once in the
@@ -122,7 +122,7 @@ Measured on London before it went night, capping the day range took **412 draw
 calls to 171** and active meshes from 984 to 569 with no change to what the map
 contains; Cairo's cap was −31% draw calls/frame against the uncapped 1100 m.
 Night's tighter clamp is why both cities absorbed a thousand new streetlights
-each and still came out with *fewer* active meshes at the same pose (London
+each and still came out with _fewer_ active meshes at the same pose (London
 878 → 500, Cairo 1_621 → 1_314; `fourCityRenderCharacterization`).
 
 ## Every city is a night city, and a night city needs a lamp line
@@ -138,7 +138,7 @@ moonlight; what makes a map drivable is the scattered `streetlight` line in
 `roadsidePropKindsForMap`, and four things about it are load-bearing:
 
 - **`curbOffsetM` (0.7 m) is not a detail — it is the difference between a lit
-  city and a dark one.** The default lateral band seats a prop a metre *beyond*
+  city and a dark one.** The default lateral band seats a prop a metre _beyond_
   the pavement, which on a real street wall is inside a ground floor, so
   `blocks.some(isInside…)` rejects it. At the same 26 m spacing London measures
   264 lamps on the default band against 1_076 kerb-seated; Cairo 521 against
@@ -147,11 +147,11 @@ moonlight; what makes a map drivable is the scattered `streetlight` line in
   and nothing else.** Its kerb exists wherever its road does — over a river,
   through a park. Skipping only water left London's 749 m Serpentine Road unlit
   inside the royal park's 902×631 m rect, and (before that) every Sakuragawa
-  bridge. But the tempting generalisation — *"any rect overlapping a
-  carriageway must be illustrative, so skip `landmarks` wholesale"* — is FALSE
+  bridge. But the tempting generalisation — _"any rect overlapping a
+  carriageway must be illustrative, so skip `landmarks` wholesale"_ — is FALSE
   and ships lamps between rails: `buildRoadsideProps` packs authored landmarks,
   `railCorridorExclusionRects` and the service/venue keep-outs into one array,
-  and a rail right-of-way crosses roads *by construction* at every level
+  and a rail right-of-way crosses roads _by construction_ at every level
   crossing. Only rects the call site positively identifies as road-crossed
   (parks) go in `roadCrossedRects`; everything else stays hard.
 - **One pass, never two.** `alternateSides` gives left-gap-right-gap only
@@ -192,11 +192,11 @@ would otherwise draw with the first's disposed materials.
 
 ## Three angle conventions coexist
 
-| Thing | Convention |
-|---|---|
-| World | `x` east, `z` north, `y` up, metres, origin = map centre |
-| Lane/pose heading | `atan2(dx, dz)` — **0 = +z (north)**, +π/2 = +x |
-| Right-hand normal | `(cos h, -sin h)` — the **driver's right** |
+| Thing             | Convention                                               |
+| ----------------- | -------------------------------------------------------- |
+| World             | `x` east, `z` north, `y` up, metres, origin = map centre |
+| Lane/pose heading | `atan2(dx, dz)` — **0 = +z (north)**, +π/2 = +x          |
+| Right-hand normal | `(cos h, -sin h)` — the **driver's right**               |
 
 ## The y-layer stack is a hard global ordering
 
@@ -257,7 +257,7 @@ ends up standing in the river (docs/greenery.md).
 
 **A junction outline tapers a width change, it does not step it.** In
 `collectRoadJunctionFills`, two legs pointing away from each other are one road
-running *through* the node rather than a corner. An unequal-width pair holds
+running _through_ the node rather than a corner. An unequal-width pair holds
 the boundary to the WIDER leg's kerb at the node and tapers one-sidedly across
 the narrow leg's reach (Kensington Road's 7.2 m into Knightsbridge's 10.4 m
 resolves over ~9 m); equal widths bridge tip to tip. Chamfering to the node
@@ -309,7 +309,7 @@ the id up in the last report's `records` — `null` clears it, and a call
 before any `fan`-mode report has run is a no-op, not a throw. Both hooks and
 the overlay mesh are torn down in `dispose()`.
 
-The stack cannot save geometry that fights *inside* one model: the Cairo kit's
+The stack cannot save geometry that fights _inside_ one model: the Cairo kit's
 millimetre-proud decal primitives are pulled forward by
 `biasCairoDecalMaterials` (`CAIRO_DECAL_MATERIAL_NAMES`, per `cairo-*.glb`
 container only). Prefer polygon offset over nudging vertices for
@@ -336,7 +336,7 @@ problem.** Dimming every warm surface was tried and failed — London's palette
 entries are just as bright and read fine at night. What fixes it is hue
 spread: the Cairo families are now neutral limestones/concretes, dusty
 off-whites, sage and red-leaning rose/terracotta. Nothing yellow-dominant
-(R≈G≫B) may enter that palette; that ratio *is* the sandy signature.
+(R≈G≫B) may enter that palette; that ratio _is_ the sandy signature.
 
 The reusable kit still follows the generic path: real albedo under the scene
 rig, and only material names that are actually panes (`window`, `glass`, or
@@ -357,14 +357,23 @@ Arabic neon rooftop signs (`addCornicheCrown`; the Arabic canvas font is
 awaited before any Cairo session constructs, so the signs rasterise with the
 real face).
 
-The camera-following horizon ring remains a cheap fog-exempt canvas, so Cairo
-paints deterministic warm/cool occupied rooms directly into its box shapes
-instead of adding hundreds of meshes. Its near/far silhouettes and sky
-horizon are lifted enough to avoid black cardboard cut-outs, while `fogColor`
-stays neutral: night fog starts at 100 m and an amber value there would tint
-every mid-distance wall back into the rejected sandy wash. Retune the palette,
-rig, bloom, panes, horizon and fog together against street-level screenshots;
-brightness must come from practical lights, not a city-wide wall tint.
+The camera-following horizon ring remains one cheap fog-exempt canvas. Every
+city paints deterministic occupied rooms directly into its box shapes instead
+of adding meshes or point lights: NYC uses the densest warm/cool office grid,
+London a sparser incandescent terrace rhythm, Tokyo a balanced warm/neon-blue
+mix, and Cairo a busy warm apartment wall with fewer cool fluorescent rooms.
+Far silhouettes must recede into their city's lit haze — Tokyo's old far tone
+was darker than its near roofs and produced the exact black cut-outs this ring
+exists to avoid.
+
+Foreground skyline light follows the same practical-only rule. Imported panes
+use each palette's `nightWindowGlowIntensity`; London's verified landmark
+glazing glows warm while the Eye, Gherkin and Shard carry cool architectural
+emissive light; Tokyo strengthens only Hikari Tower's tiny red aircraft beacon
+and leaves its orange lattice crisp. Cairo alone keeps `fogColor` deliberately
+neutral because amber fog would repaint every mid-distance wall sandy. Retune
+rig, bloom, panes, horizon and fog together: brightness comes from rooms,
+signs, lamps and landmark lighting, never a city-wide emissive wall tint.
 
 ### Cairo advertising is a campaign layer, not roadside scatter
 
@@ -431,7 +440,7 @@ Ground grass, park lawns, paths and planting live in [greenery.md](greenery.md);
 
 ## The glTF loader bakes a 180° Y flip
 
-Model fronts are *usually* on local −Z. This propagates into four separate offset
+Model fronts are _usually_ on local −Z. This propagates into four separate offset
 conventions: props `yawOffset = π/2`, characters `π`, buildings per-model
 `frontOffset`, vehicles per-model (the van's `-π/2` is what plate placement
 derives its axes from). A Babylon box's +Z face also renders textures
@@ -439,7 +448,7 @@ derives its axes from). A Babylon box's +Z face also renders textures
 
 **A model has no one facing — each placement path has its own frame, and you
 must measure in the path's frame, not the loader's.** The loader's flip is a
-180° Y-rotation *plus* scaling `(1,1,-1)` on the same `__root__`.
+180° Y-rotation _plus_ scaling `(1,1,-1)` on the same `__root__`.
 `getBuildingMaster` merges with that intact (then repairs winding), so in the
 street wall a facade authored on +Z stays +Z — `frontOffset: Math.PI`. But
 `instantiateProp` overwrites the root scaling with a uniform scale, so in the
@@ -510,7 +519,7 @@ React/HMR session cannot delete the replacement session's newer hooks.
 
 Everything starts as an empty placeholder; an async preload then upgrades
 vehicles/characters/props, builds instanced buildings and the VAT crowd, and only
-*then* calls `markReady()` — which is what lifts the React loading gate. There is
+_then_ calls `markReady()` — which is what lifts the React loading gate. There is
 no procedural vehicle/character fallback any more, so **anything that lifts
 `markReady` early ships invisible cars and people.**
 
@@ -557,7 +566,7 @@ tiles drifting downstream at different speeds; without one it is a pond —
 isotropic, no bump, frozen. The one authored `color` is only a base, painted at
 `RIVER_TILE_GAIN_*` of face value because a lit plane collects ~1.5× (day)
 before the grazing sheen is added. The bank darkening needs geometry of its
-own, since every vertex of the bare outline *is* a bank vertex: the builder
+own, since every vertex of the bare outline _is_ a bank vertex: the builder
 mitres a ring inward for the tint to fade across, and refuses outlines too
 tight to inset.
 
@@ -568,7 +577,7 @@ palette key, plate region, allowed building sets, nature sets, and crowd
 complexion/hair weights, keyed by the map's exact authored id, no substring
 matching, no default. `resolveMapVisualProfile`/`resolveMapVisualKey` throw
 immediately on an unmapped id, naming it, rather than silently borrowing
-NYC's look. It carries only *selectors*; the content each indexes into
+NYC's look. It carries only _selectors_; the content each indexes into
 stays in its own domain file, so adding a city is one new row here, never a
 second mapId-keyed table. `cityRenderRegistry.ts`'s landmark dispatch stays
 `undefined`-on-miss instead: a landmark with no dispatcher is a supported
@@ -602,7 +611,7 @@ The cabin carries `COCKPIT_LAYER_MASK` to stay out of them.
 
 Babylon's `ObjectRenderer` **frustum-culls nothing** — there is not one
 `isInFrustum` call in it — and an RTT with a null `renderList` silently falls back
-to the meshes culled for the *main* camera, which for a rearward mirror is the
+to the meshes culled for the _main_ camera, which for a rearward mirror is the
 wrong half of the world and looks plausible until you watch it.
 
 So the caller culls: `mirrorRenderList.ts` picks a ring out of the same spatial
@@ -630,7 +639,7 @@ renders flat emissive.
 
 This is what makes mirrors cheap: `refreshRate` skips whole frames (the texture
 keeps its contents), which a viewport camera cannot do. First-person draw calls
-fell from 488 to 390 *while gaining* a wing mirror.
+fell from 488 to 390 _while gaining_ a wing mirror.
 
 Kerbside parked cars use the vendor-cart recipe at street scale: one
 `parkedCarsForMap` plan is read by the session's build (merged-master
@@ -721,7 +730,7 @@ placement, promenade and scatter alike, to the planting queue.
 ## Render scaling
 
 **`hardwareScalingLevel` is CSS pixels per rendered pixel — higher is blurrier —
-and `setHardwareScalingLevel` *overwrites* what `adaptToDeviceRatio: true`
+and `setHardwareScalingLevel` _overwrites_ what `adaptToDeviceRatio: true`
 computed rather than composing with it.** A level derived from
 `devicePixelRatio` double-counts it (the old `min(1.65, dpr/1.2)` pinned every
 phone to a 516×238 buffer). `resize()` does **not** reset the level in Babylon
@@ -737,11 +746,11 @@ post-processes as `kernel`, whose setter calls `_updateParameters()` and
 **recompiles their shaders** on any new kernel size. A recompiling effect draws
 nothing, so the frame lands blank.
 
-Babylon caches by define-set, so each *distinct* level costs one compile ever —
+Babylon caches by define-set, so each _distinct_ level costs one compile ever —
 which is why `renderScaling.ts` governs over a **four-rung ladder**
 (`TOUCH_SCALING_LADDER` = 0.65 / 0.8 / 1.0 / 1.25, opening one rung down from the
 sharpest) rather than a continuous knob, after a warm-up, and why
-`governRenderScaling` runs *before* `scene.render()`.
+`governRenderScaling` runs _before_ `scene.render()`.
 
 **Desktop is not governed at all**: it takes `desktopHardwareScalingLevel` once at
 construction — a DPR curve plus a `DESKTOP_MAX_RENDER_WIDTH_PX` (2560) render cap

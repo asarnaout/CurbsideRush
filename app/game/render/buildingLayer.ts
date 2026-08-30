@@ -26,7 +26,11 @@ import { buildingStructuralBoundsFor } from "../buildingStructuralBounds";
 import { ARABIC_CANVAS_FONT_FAMILY } from "../arabicFont";
 import { MERGE_INCOMPATIBLE_MODEL_IDS } from "../buildingCatalog";
 import type { PlannedAssetBuilding } from "../geometry/buildingLayout";
-import { instantiateModel, instantiateModelInstanced, modelMaterials } from "../modelLibrary";
+import {
+  instantiateModel,
+  instantiateModelInstanced,
+  modelMaterials,
+} from "../modelLibrary";
 import { createFacadeBox } from "./meshPrimitives";
 import { BUILDING_GROUND_LIFT } from "./renderConstants";
 import {
@@ -102,11 +106,11 @@ import type { BuildingRepresentationRecord } from "./buildingRepresentation";
  * back when every facade emitted its own albedo, so a pane had to shout to
  * out-read a glowing wall. With walls returned to being lit by the scene, the
  * same 0.72 blows the pane out to a flat white-yellow rectangle under night's
- * 1.55 exposure and the default 0.72 bloom threshold — the window stops
+ * 1.55 exposure and the legacy 0.72 bloom threshold — the window stops
  * looking like a room and starts looking like a sticker. This is the shared
- * default; Cairo's palette deliberately raises PBR panes to 0.46 while lowering
- * bloom threshold, so either value must be retuned against its wall, never in
- * isolation.
+ * fallback; every shipped palette now pairs its own restrained pane intensity
+ * with its own bloom threshold, so either value must be retuned against its
+ * wall, never in isolation.
  */
 const WINDOW_GLOW = 0.34;
 
@@ -169,13 +173,19 @@ export interface BuildingLayerInstantiateCtx {
    * see the class doc comment for why this is a building-only knob now. */
   readonly buildingAssetDetailFraction: number;
   /** Cairo's rooftop clutter masters, or null on every other map. */
-  readonly cairoRoofClutterMasters: { readonly tank: Mesh; readonly dish: Mesh } | null;
+  readonly cairoRoofClutterMasters: {
+    readonly tank: Mesh;
+    readonly dish: Mesh;
+  } | null;
   /** Nodes to freeze once, after the first render — shared with every other
    * static-scenery builder in `buildScenarioEnvironment`. */
   readonly staticSceneryFreeze: TransformNode[];
   /** The session's shared merged-master-per-url cache; see the class doc
    * comment for why this class does not own it. */
-  readonly getBuildingMaster: (url: string, squareUpYaw?: number) => Mesh | null;
+  readonly getBuildingMaster: (
+    url: string,
+    squareUpYaw?: number,
+  ) => Mesh | null;
   /** `ProceduralFacades.materialFor` — see the class doc comment. */
   readonly materialFor: (materialKey: string) => StandardMaterial;
   /** Files a static mesh into the spatial hash the shadow/mirror rings read;
@@ -189,7 +199,9 @@ export interface BuildingLayerInstantiateCtx {
   ) => void;
   /** Records what actually stands for one planned entry — queried by tests
    * and the debug hook. See `render/buildingRepresentation.ts`. */
-  readonly registerRepresentation: (record: BuildingRepresentationRecord) => void;
+  readonly registerRepresentation: (
+    record: BuildingRepresentationRecord,
+  ) => void;
   /** Test/development-only; absent in production. */
   readonly debugAssetPolicy?: DebugBuildingAssetPolicy;
 }
@@ -201,7 +213,10 @@ export class BuildingLayer {
    * comment. `undefined` = not yet attempted; `null` = attempted and failed
    * (falls back to the plain building master for that url). */
   private readonly storefrontMasters = new Map<string, Mesh | null>();
-  private readonly storefrontSignMaterials = new Map<string, StandardMaterial>();
+  private readonly storefrontSignMaterials = new Map<
+    string,
+    StandardMaterial
+  >();
   private readonly crownSignMaterials = new Map<number, StandardMaterial>();
 
   constructor(private readonly scene: Scene) {}
@@ -326,7 +341,9 @@ export class BuildingLayer {
       root.computeWorldMatrix(true);
       const meshes = root
         .getChildMeshes(false)
-        .filter((m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0);
+        .filter(
+          (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0,
+        );
       for (const mesh of meshes) mesh.computeWorldMatrix(true);
       master = meshes.length
         ? assembleStorefrontVariantMaster(
@@ -351,7 +368,9 @@ export class BuildingLayer {
   /** One DynamicTexture sign material per variant, shared by both of its
    * fascia planes and every instance — the addRoofSign recipe (emissive so it
    * reads on the night map, no culling so a winding flip can't drop it). */
-  private getStorefrontSignMaterial(variant: StorefrontVariant): StandardMaterial {
+  private getStorefrontSignMaterial(
+    variant: StorefrontVariant,
+  ): StandardMaterial {
     const cached = this.storefrontSignMaterials.get(variant.id);
     if (cached) return cached;
     const texture = new DynamicTexture(
@@ -422,7 +441,9 @@ export class BuildingLayer {
     if (roll >= 2) return;
     const tank = roll === 0;
     const master = tank ? masters.tank : masters.dish;
-    const inst = master.createInstance(`cairo-roof-${building.renderOrdinal}-${roll}`);
+    const inst = master.createInstance(
+      `cairo-roof-${building.renderOrdinal}-${roll}`,
+    );
     // Offset off-centre so a run of buildings does not line its tanks up in a
     // perfectly straight row down the street.
     const offset = ((building.renderOrdinal % 3) - 1) * 1.4;
@@ -481,9 +502,8 @@ export class BuildingLayer {
     const bounds = buildingStructuralBoundsFor(entry.modelId);
     if (!bounds) return;
     const variant =
-      hashStringToSeed(
-        `crown-${Math.round(entry.x)}-${Math.round(entry.z)}`,
-      ) % CAIRO_CROWN_SIGNS.length;
+      hashStringToSeed(`crown-${Math.round(entry.x)}-${Math.round(entry.z)}`) %
+      CAIRO_CROWN_SIGNS.length;
     const plate = MeshBuilder.CreatePlane(
       `cairo-crown-${entry.renderOrdinal}`,
       { width: 14, height: 3.4 },
@@ -497,10 +517,16 @@ export class BuildingLayer {
     ctx.registerStaticCell(plate, entry.x, entry.z, false);
   }
 
-  private isForcedUnavailable(modelId: string, ctx: BuildingLayerInstantiateCtx): boolean {
+  private isForcedUnavailable(
+    modelId: string,
+    ctx: BuildingLayerInstantiateCtx,
+  ): boolean {
     const policy = ctx.debugAssetPolicy;
     if (!policy) return false;
-    return policy.unavailableModelIds === "all" || policy.unavailableModelIds.includes(modelId);
+    return (
+      policy.unavailableModelIds === "all" ||
+      policy.unavailableModelIds.includes(modelId)
+    );
   }
 
   /**
@@ -532,7 +558,8 @@ export class BuildingLayer {
     if (!instanced || !root) return false;
     const holderId = `bldg-${entry.id}`;
     const wrap = new TransformNode(holderId, this.scene);
-    const squareUpYaw = buildingPlacementConfig(entry.modelId)?.squareUpYaw ?? 0;
+    const squareUpYaw =
+      buildingPlacementConfig(entry.modelId)?.squareUpYaw ?? 0;
     wrap.position.set(entry.x, entry.groundY + BUILDING_GROUND_LIFT, entry.z);
     wrap.rotation.y = entry.yaw + squareUpYaw;
     root.parent = wrap;
@@ -564,7 +591,10 @@ export class BuildingLayer {
    * exact XZ transform and the plan's proxy height. Never one envelope
    * around a compound entry's solids, never a billboard, never expanded
    * across a neighbouring opening (Section 7.6). */
-  private buildProxy(entry: PlannedAssetBuilding, ctx: BuildingLayerInstantiateCtx): void {
+  private buildProxy(
+    entry: PlannedAssetBuilding,
+    ctx: BuildingLayerInstantiateCtx,
+  ): void {
     const material = ctx.materialFor(entry.material);
     const solidRepresentations = entry.solids.map((solid) => {
       const yaw = Math.atan2(-solid.uz, solid.ux);
@@ -636,18 +666,30 @@ export class BuildingLayer {
       // buildProxy on its own failure, so this branch's own continue always
       // leaves the entry fully resolved one way or the other.
       if (attemptGlb && MERGE_INCOMPATIBLE_MODEL_IDS.has(entry.modelId)) {
-        if (!this.instantiateViaSubmeshes(entry, ctx)) this.buildProxy(entry, ctx);
+        if (!this.instantiateViaSubmeshes(entry, ctx))
+          this.buildProxy(entry, ctx);
         continue;
       }
       const master = attemptGlb
         ? entry.modelId === STOREFRONT_MODEL_ID
-          ? this.getStorefrontMaster(entry.url, pickStorefrontVariant(entry.x, entry.z), ctx)
-          : ctx.getBuildingMaster(entry.url, buildingPlacementConfig(entry.modelId)?.squareUpYaw ?? 0)
+          ? this.getStorefrontMaster(
+              entry.url,
+              pickStorefrontVariant(entry.x, entry.z),
+              ctx,
+            )
+          : ctx.getBuildingMaster(
+              entry.url,
+              buildingPlacementConfig(entry.modelId)?.squareUpYaw ?? 0,
+            )
         : null;
       if (master) {
         // Fast path: one instance = one scene mesh = one cull check.
         const inst = master.createInstance(`bldg-${entry.id}`);
-        inst.position.set(entry.x, entry.groundY + BUILDING_GROUND_LIFT, entry.z);
+        inst.position.set(
+          entry.x,
+          entry.groundY + BUILDING_GROUND_LIFT,
+          entry.z,
+        );
         inst.rotation.y = entry.yaw;
         inst.scaling.setAll(entry.scale);
         inst.isPickable = false;

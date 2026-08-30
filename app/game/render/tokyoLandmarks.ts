@@ -87,7 +87,10 @@ const HIKARI_TOWER_ID = "jp-hikari-tower";
  * here since that module is pure (no Babylon) and cannot be imported by a
  * render file, and this one cannot be imported by the pure geometry layer.
  * Both files' `HIKARI_LEG_OFFSET_M` (16) agree for the same reason. */
-const HIKARI_LEG_CORNERS: ReadonlyArray<{ readonly sx: -1 | 1; readonly sz: -1 | 1 }> = [
+const HIKARI_LEG_CORNERS: ReadonlyArray<{
+  readonly sx: -1 | 1;
+  readonly sz: -1 | 1;
+}> = [
   { sx: 1, sz: 1 },
   { sx: 1, sz: -1 },
   { sx: -1, sz: 1 },
@@ -104,7 +107,11 @@ const HIKARI_LEG_OFFSET_M = 16;
  * collision box agree; the last breakpoint lands each leg just inside the
  * main deck's own 9 m radius and 88.5 m underside, so the join has no
  * visible seam. */
-const HIKARI_LEG_PROFILE: ReadonlyArray<{ readonly y: number; readonly r: number; readonly half: number }> = [
+const HIKARI_LEG_PROFILE: ReadonlyArray<{
+  readonly y: number;
+  readonly r: number;
+  readonly half: number;
+}> = [
   { y: 0, r: HIKARI_LEG_OFFSET_M * Math.SQRT2, half: 2 },
   { y: 24, r: 19, half: 1.6 },
   { y: 48, r: 15, half: 1.2 },
@@ -197,8 +204,8 @@ function buildHikariTower(
     return mesh;
   };
 
-  // Emissive values tuned against the night pipeline's own bloomThreshold
-  // (0.72, post-exposure 1.55x — babylonGameSession.ts) rather than picked
+  // Emissive values tuned against Tokyo's night pipeline bloomThreshold
+  // (0.68, post-exposure 1.55x — visuals.ts/babylonGameSession.ts) rather than picked
   // by eye: this file's own proven lamp-head glow (0.98, 0.75, 0.35) is the
   // reference point a first pass (~0.2-0.5 peak channel) sat well under,
   // rendering as flat colour with no visible halo. These land close to the
@@ -225,7 +232,10 @@ function buildHikariTower(
     scene,
     `${landmark.id}-beacon`,
     new Color3(0.3, 0.02, 0.02),
-    new Color3(0.95, 0.12, 0.08),
+    // Saturated red contributes little luminance, so a value near 1.0 still
+    // sat below bloom. Strengthen only the tiny tip beacon; the lattice keeps
+    // its crisp, sub-threshold orange silhouette.
+    new Color3(1.7, 0.24, 0.12),
   );
 
   // Four leaning legs, each its own tilt plane.
@@ -273,7 +283,11 @@ function buildHikariTower(
       const brace = createBox(
         scene,
         `${landmark.id}-brace-${levelIndex}-${edgeIndex}`,
-        { width: lengthM, height: HIKARI_BRACE_HALF_M * 2, depth: HIKARI_BRACE_HALF_M * 2 },
+        {
+          width: lengthM,
+          height: HIKARI_BRACE_HALF_M * 2,
+          depth: HIKARI_BRACE_HALF_M * 2,
+        },
         new Vector3((from.x + to.x) / 2, y, (from.z + to.z) / 2),
         levelIndex % 2 === 0 ? white : orange,
       );
@@ -287,7 +301,11 @@ function buildHikariTower(
     createCylinder(
       scene,
       `${landmark.id}-main-deck`,
-      { height: HIKARI_DECK_HEIGHT_M, diameter: HIKARI_DECK_RADIUS_M * 2, tessellation: 16 },
+      {
+        height: HIKARI_DECK_HEIGHT_M,
+        diameter: HIKARI_DECK_RADIUS_M * 2,
+        tessellation: 16,
+      },
       new Vector3(cx, HIKARI_DECK_Y, cz),
       deckGlow,
     ),
@@ -300,7 +318,12 @@ function buildHikariTower(
     createCylinder(
       scene,
       `${landmark.id}-mast`,
-      { height: mastTopY - mastBottomY, diameterBottom: 5.6, diameterTop: 4.2, tessellation: 12 },
+      {
+        height: mastTopY - mastBottomY,
+        diameterBottom: 5.6,
+        diameterTop: 4.2,
+        tessellation: 12,
+      },
       new Vector3(cx, (mastBottomY + mastTopY) / 2, cz),
       orange,
     ),
@@ -311,7 +334,11 @@ function buildHikariTower(
     createCylinder(
       scene,
       `${landmark.id}-upper-deck`,
-      { height: HIKARI_UPPER_DECK_HEIGHT_M, diameter: HIKARI_UPPER_DECK_RADIUS_M * 2, tessellation: 14 },
+      {
+        height: HIKARI_UPPER_DECK_HEIGHT_M,
+        diameter: HIKARI_UPPER_DECK_RADIUS_M * 2,
+        tessellation: 14,
+      },
       new Vector3(cx, HIKARI_UPPER_DECK_Y, cz),
       deckGlow,
     ),
@@ -323,7 +350,12 @@ function buildHikariTower(
     createCylinder(
       scene,
       `${landmark.id}-spire`,
-      { height: HIKARI_SPIRE_TIP_Y - spireBottomY, diameterBottom: 3.6, diameterTop: 0.5, tessellation: 10 },
+      {
+        height: HIKARI_SPIRE_TIP_Y - spireBottomY,
+        diameterBottom: 3.6,
+        diameterTop: 0.5,
+        tessellation: 10,
+      },
       new Vector3(cx, (spireBottomY + HIKARI_SPIRE_TIP_Y) / 2, cz),
       orange,
     ),
@@ -333,11 +365,23 @@ function buildHikariTower(
       scene,
       `${landmark.id}-spire-band`,
       { height: 0.6, diameter: 1.7, tessellation: 10 },
-      new Vector3(cx, spireBottomY + (HIKARI_SPIRE_TIP_Y - spireBottomY) * 0.55, cz),
+      new Vector3(
+        cx,
+        spireBottomY + (HIKARI_SPIRE_TIP_Y - spireBottomY) * 0.55,
+        cz,
+      ),
       white,
     ),
   );
-  freeze(createIcoSphere(scene, `${landmark.id}-beacon`, 0.6, new Vector3(cx, HIKARI_SPIRE_TIP_Y + 0.5, cz), beaconMaterial));
+  freeze(
+    createIcoSphere(
+      scene,
+      `${landmark.id}-beacon`,
+      0.6,
+      new Vector3(cx, HIKARI_SPIRE_TIP_Y + 0.5, cz),
+      beaconMaterial,
+    ),
+  );
 
   // FootTown-analog podium — the ground solid this exact box matches lives
   // in `geometry/landmarkGroundSolids.ts`'s `tokyoHikariTower`.
@@ -345,7 +389,11 @@ function buildHikariTower(
     createBox(
       scene,
       `${landmark.id}-podium`,
-      { width: HIKARI_PODIUM_HALF_X_M * 2, height: HIKARI_PODIUM_HEIGHT_M, depth: HIKARI_PODIUM_HALF_Z_M * 2 },
+      {
+        width: HIKARI_PODIUM_HALF_X_M * 2,
+        height: HIKARI_PODIUM_HEIGHT_M,
+        depth: HIKARI_PODIUM_HALF_Z_M * 2,
+      },
       new Vector3(cx, HIKARI_PODIUM_HEIGHT_M / 2, cz),
       deckGlow,
     ),
@@ -387,8 +435,16 @@ export function buildTokyoLandmark(
 
   // Cooler than NYC's warm steel/stone — Tokyo's night palette leans
   // mercury-vapour blue.
-  const steel = makeMaterial(scene, `${landmark.id}-steel`, new Color3(0.28, 0.3, 0.34));
-  const parapetConcrete = makeMaterial(scene, `${landmark.id}-parapet`, new Color3(0.38, 0.37, 0.4));
+  const steel = makeMaterial(
+    scene,
+    `${landmark.id}-steel`,
+    new Color3(0.28, 0.3, 0.34),
+  );
+  const parapetConcrete = makeMaterial(
+    scene,
+    `${landmark.id}-parapet`,
+    new Color3(0.38, 0.37, 0.4),
+  );
   const lampGlow = makeMaterial(
     scene,
     `${landmark.id}-lamp`,
@@ -418,7 +474,11 @@ export function buildTokyoLandmark(
       scene,
       `${landmark.id}-guardrail-${side}`,
       { width: length, height: GUARDRAIL_HEIGHT_M, depth: 0.16 },
-      new Vector3(0, GUARDRAIL_HEIGHT_M / 2, side * (carriagewayWidthM / 2 + 0.3)),
+      new Vector3(
+        0,
+        GUARDRAIL_HEIGHT_M / 2,
+        side * (carriagewayWidthM / 2 + 0.3),
+      ),
       steel,
       root,
     );
@@ -479,8 +539,14 @@ export function buildTokyoLandmark(
     const midWorldZ = axis.center.z + Math.sin(axis.headingRad) * archLateralM;
     const archBlocked = roadSurfaces.some((surface) => {
       if (surface.id === landmark.id) return false;
-      const nearest = nearestPointOnPolyline({ x: midWorldX, z: midWorldZ }, surface.centerline);
-      return Math.hypot(midWorldX - nearest.x, midWorldZ - nearest.z) < surface.widthM / 2 + 1.5;
+      const nearest = nearestPointOnPolyline(
+        { x: midWorldX, z: midWorldZ },
+        surface.centerline,
+      );
+      return (
+        Math.hypot(midWorldX - nearest.x, midWorldZ - nearest.z) <
+        surface.widthM / 2 + 1.5
+      );
     });
     if (!archBlocked) {
       for (const side of [-1, 1] as const) {
@@ -500,7 +566,11 @@ export function buildTokyoLandmark(
             scene,
             `${landmark.id}-arch-${segment}-${side}`,
             { width: segmentLengthM, height: 0.5, depth: 0.5 },
-            new Vector3((previous.along + along) / 2, (previous.height + height) / 2, side * archLateralM),
+            new Vector3(
+              (previous.along + along) / 2,
+              (previous.height + height) / 2,
+              side * archLateralM,
+            ),
             vermilion,
             root,
           );
@@ -569,22 +639,54 @@ const NEON_VARIANT_COLORS: readonly [Color3, Color3][] = [
 function buildChochinPosts(ctx: TokyoStreetFurnitureCtx): void {
   if (!TOKYO_CHOCHIN_POSTS.length) return;
   const scene = ctx.scene;
-  const poleMaterial = makeMaterial(scene, "tokyo-chochin-pole", new Color3(0.24, 0.12, 0.08));
+  const poleMaterial = makeMaterial(
+    scene,
+    "tokyo-chochin-pole",
+    new Color3(0.24, 0.12, 0.08),
+  );
   const lanternMaterial = makeMaterial(
     scene,
     "tokyo-chochin-lantern",
     new Color3(0.55, 0.09, 0.07),
     new Color3(0.92, 0.38, 0.11),
   );
-  const capMaterial = makeMaterial(scene, "tokyo-chochin-cap", new Color3(0.07, 0.06, 0.06));
+  const capMaterial = makeMaterial(
+    scene,
+    "tokyo-chochin-cap",
+    new Color3(0.07, 0.06, 0.06),
+  );
 
-  const pole = createCylinder(scene, "prop-master-tokyo-chochin-pole", { height: 2.3, diameter: 0.09, tessellation: 8 }, Vector3.Zero(), poleMaterial);
+  const pole = createCylinder(
+    scene,
+    "prop-master-tokyo-chochin-pole",
+    { height: 2.3, diameter: 0.09, tessellation: 8 },
+    Vector3.Zero(),
+    poleMaterial,
+  );
   pole.isVisible = false;
-  const lantern = createCylinder(scene, "prop-master-tokyo-chochin-lantern", { height: 0.46, diameter: 0.32, tessellation: 8 }, Vector3.Zero(), lanternMaterial);
+  const lantern = createCylinder(
+    scene,
+    "prop-master-tokyo-chochin-lantern",
+    { height: 0.46, diameter: 0.32, tessellation: 8 },
+    Vector3.Zero(),
+    lanternMaterial,
+  );
   lantern.isVisible = false;
-  const capTop = createCylinder(scene, "prop-master-tokyo-chochin-cap-top", { height: 0.06, diameterTop: 0.12, diameterBottom: 0.34, tessellation: 8 }, Vector3.Zero(), capMaterial);
+  const capTop = createCylinder(
+    scene,
+    "prop-master-tokyo-chochin-cap-top",
+    { height: 0.06, diameterTop: 0.12, diameterBottom: 0.34, tessellation: 8 },
+    Vector3.Zero(),
+    capMaterial,
+  );
   capTop.isVisible = false;
-  const capBottom = createCylinder(scene, "prop-master-tokyo-chochin-cap-bottom", { height: 0.06, diameterTop: 0.34, diameterBottom: 0.12, tessellation: 8 }, Vector3.Zero(), capMaterial);
+  const capBottom = createCylinder(
+    scene,
+    "prop-master-tokyo-chochin-cap-bottom",
+    { height: 0.06, diameterTop: 0.34, diameterBottom: 0.12, tessellation: 8 },
+    Vector3.Zero(),
+    capMaterial,
+  );
   capBottom.isVisible = false;
 
   const parts: readonly { readonly master: Mesh; readonly y: number }[] = [
@@ -606,7 +708,13 @@ function buildChochinPosts(ctx: TokyoStreetFurnitureCtx): void {
       ctx.registerShadowCaster(instance, post.position.x, post.position.z);
       destructibleParts.push({ node: instance, isLightPool: false });
     }
-    ctx.registerDestructibleProp("chochin-post", post.position.x, post.position.z, 1, destructibleParts);
+    ctx.registerDestructibleProp(
+      "chochin-post",
+      post.position.x,
+      post.position.z,
+      1,
+      destructibleParts,
+    );
   }
 
   poleMaterial.freeze();
@@ -629,83 +737,92 @@ function buildNeonSigns(
   if (!TOKYO_NEON_SIGNS.length) return;
   const scene = ctx.scene;
   const geometry = TOKYO_NEON_SIGN_GEOMETRY;
-  const masters = NEON_VARIANT_COLORS.map(([diffuse, emissive], variantIndex) => {
-    const material = makeMaterial(scene, `tokyo-neon-${variantIndex}`, diffuse, emissive);
-    const housing = createBox(
-      scene,
-      `prop-master-tokyo-neon-${variantIndex}-housing-source`,
-      {
-        width: geometry.housingWidthM,
-        height: geometry.housingHeightM,
-        depth: geometry.housingDepthM,
-      },
-      Vector3.Zero(),
-      housingMaterial,
-    );
-    const face = createBox(
-      scene,
-      `prop-master-tokyo-neon-${variantIndex}-face-source`,
-      {
-        width: geometry.panelWidthM,
-        height: geometry.panelHeightM,
-        depth: geometry.panelDepthM,
-      },
-      new Vector3(
-        0,
-        0,
-        geometry.housingDepthM / 2 + geometry.panelDepthM / 2 + 0.001,
-      ),
-      material,
-    );
-    const armCentreZ =
-      -(geometry.housingDepthM + geometry.facadeArmReachM) / 2;
-    const arms = geometry.facadeArmYOffsetsM.map((y, armIndex) =>
-      createBox(
+  const masters = NEON_VARIANT_COLORS.map(
+    ([diffuse, emissive], variantIndex) => {
+      const material = makeMaterial(
         scene,
-        `prop-master-tokyo-neon-${variantIndex}-arm-${armIndex}-source`,
+        `tokyo-neon-${variantIndex}`,
+        diffuse,
+        emissive,
+      );
+      const housing = createBox(
+        scene,
+        `prop-master-tokyo-neon-${variantIndex}-housing-source`,
         {
-          width: geometry.facadeArmThicknessM,
-          height: geometry.facadeArmThicknessM,
-          depth: geometry.facadeArmReachM,
+          width: geometry.housingWidthM,
+          height: geometry.housingHeightM,
+          depth: geometry.housingDepthM,
         },
-        new Vector3(0, y, armCentreZ),
+        Vector3.Zero(),
         housingMaterial,
-      ),
-    );
-    const facadePlate = createBox(
-      scene,
-      `prop-master-tokyo-neon-${variantIndex}-facade-plate-source`,
-      {
-        width: geometry.facadePlateWidthM,
-        height: geometry.facadePlateHeightM,
-        depth: geometry.facadePlateDepthM,
-      },
-      new Vector3(
-        0,
-        0,
-        -geometry.housingDepthM / 2 -
-          geometry.facadeArmReachM +
-          geometry.facadePlateDepthM / 2,
-      ),
-      housingMaterial,
-    );
-    const target = new Mesh(`prop-master-tokyo-neon-${variantIndex}`, scene);
-    const mesh = Mesh.MergeMeshes(
-      [housing, face, ...arms, facadePlate],
-      true,
-      true,
-      target,
-      false,
-      true,
-    );
-    if (!mesh) {
-      target.dispose();
-      throw new Error(`failed to assemble Tokyo neon sign variant ${variantIndex}`);
-    }
-    mesh.isVisible = false;
-    mesh.isPickable = false;
-    return { mesh, material };
-  });
+      );
+      const face = createBox(
+        scene,
+        `prop-master-tokyo-neon-${variantIndex}-face-source`,
+        {
+          width: geometry.panelWidthM,
+          height: geometry.panelHeightM,
+          depth: geometry.panelDepthM,
+        },
+        new Vector3(
+          0,
+          0,
+          geometry.housingDepthM / 2 + geometry.panelDepthM / 2 + 0.001,
+        ),
+        material,
+      );
+      const armCentreZ =
+        -(geometry.housingDepthM + geometry.facadeArmReachM) / 2;
+      const arms = geometry.facadeArmYOffsetsM.map((y, armIndex) =>
+        createBox(
+          scene,
+          `prop-master-tokyo-neon-${variantIndex}-arm-${armIndex}-source`,
+          {
+            width: geometry.facadeArmThicknessM,
+            height: geometry.facadeArmThicknessM,
+            depth: geometry.facadeArmReachM,
+          },
+          new Vector3(0, y, armCentreZ),
+          housingMaterial,
+        ),
+      );
+      const facadePlate = createBox(
+        scene,
+        `prop-master-tokyo-neon-${variantIndex}-facade-plate-source`,
+        {
+          width: geometry.facadePlateWidthM,
+          height: geometry.facadePlateHeightM,
+          depth: geometry.facadePlateDepthM,
+        },
+        new Vector3(
+          0,
+          0,
+          -geometry.housingDepthM / 2 -
+            geometry.facadeArmReachM +
+            geometry.facadePlateDepthM / 2,
+        ),
+        housingMaterial,
+      );
+      const target = new Mesh(`prop-master-tokyo-neon-${variantIndex}`, scene);
+      const mesh = Mesh.MergeMeshes(
+        [housing, face, ...arms, facadePlate],
+        true,
+        true,
+        target,
+        false,
+        true,
+      );
+      if (!mesh) {
+        target.dispose();
+        throw new Error(
+          `failed to assemble Tokyo neon sign variant ${variantIndex}`,
+        );
+      }
+      mesh.isVisible = false;
+      mesh.isPickable = false;
+      return { mesh, material };
+    },
+  );
 
   let index = 0;
   for (const sign of TOKYO_NEON_SIGNS) {
@@ -733,16 +850,29 @@ function buildScrambleBillboards(
 ): void {
   const scene = ctx.scene;
   if (!TOKYO_SCRAMBLE_BILLBOARDS.length) return;
-  const screenMaterial = makeMaterial(scene, "tokyo-billboard-screen", new Color3(0.08, 0.28, 0.4), new Color3(0.55, 0.85, 1.15));
+  const screenMaterial = makeMaterial(
+    scene,
+    "tokyo-billboard-screen",
+    new Color3(0.08, 0.28, 0.4),
+    new Color3(0.55, 0.85, 1.15),
+  );
   for (const billboard of TOKYO_SCRAMBLE_BILLBOARDS) {
     const root = new TransformNode(`${billboard.id}-root`, scene);
-    root.position.set(billboard.position.x, billboard.mountHeightM, billboard.position.z);
+    root.position.set(
+      billboard.position.x,
+      billboard.mountHeightM,
+      billboard.position.z,
+    );
     root.rotation.y = (billboard.headingDeg * Math.PI) / 180;
     ctx.staticSceneryFreeze.push(root);
     const frame = createBox(
       scene,
       `${billboard.id}-frame`,
-      { width: billboard.widthM + 0.4, height: billboard.heightM + 0.4, depth: 0.3 },
+      {
+        width: billboard.widthM + 0.4,
+        height: billboard.heightM + 0.4,
+        depth: 0.3,
+      },
       Vector3.Zero(),
       frameMaterial,
       root,
@@ -795,15 +925,45 @@ const WIRE_THICKNESS_M = 0.045;
 function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
   if (!TOKYO_WIRE_RUNS.length) return;
   const scene = ctx.scene;
-  const poleMaterial = makeMaterial(scene, "tokyo-wire-pole", new Color3(0.32, 0.29, 0.26));
-  const armMaterial = makeMaterial(scene, "tokyo-wire-arm", new Color3(0.12, 0.12, 0.13));
-  const cableMaterial = makeMaterial(scene, "tokyo-wire-cable", new Color3(0.04, 0.04, 0.045));
+  const poleMaterial = makeMaterial(
+    scene,
+    "tokyo-wire-pole",
+    new Color3(0.32, 0.29, 0.26),
+  );
+  const armMaterial = makeMaterial(
+    scene,
+    "tokyo-wire-arm",
+    new Color3(0.12, 0.12, 0.13),
+  );
+  const cableMaterial = makeMaterial(
+    scene,
+    "tokyo-wire-cable",
+    new Color3(0.04, 0.04, 0.045),
+  );
 
-  const poleMaster = createCylinder(scene, "prop-master-tokyo-wire-pole", { height: 7.4, diameter: 0.22, tessellation: 8 }, Vector3.Zero(), poleMaterial);
+  const poleMaster = createCylinder(
+    scene,
+    "prop-master-tokyo-wire-pole",
+    { height: 7.4, diameter: 0.22, tessellation: 8 },
+    Vector3.Zero(),
+    poleMaterial,
+  );
   poleMaster.isVisible = false;
-  const armTopMaster = createBox(scene, "prop-master-tokyo-wire-arm-top", { width: 1.7, height: 0.09, depth: 0.09 }, Vector3.Zero(), armMaterial);
+  const armTopMaster = createBox(
+    scene,
+    "prop-master-tokyo-wire-arm-top",
+    { width: 1.7, height: 0.09, depth: 0.09 },
+    Vector3.Zero(),
+    armMaterial,
+  );
   armTopMaster.isVisible = false;
-  const armLowMaster = createBox(scene, "prop-master-tokyo-wire-arm-low", { width: 1.25, height: 0.08, depth: 0.08 }, Vector3.Zero(), armMaterial);
+  const armLowMaster = createBox(
+    scene,
+    "prop-master-tokyo-wire-arm-low",
+    { width: 1.25, height: 0.08, depth: 0.08 },
+    Vector3.Zero(),
+    armMaterial,
+  );
   armLowMaster.isVisible = false;
   const poleParts: readonly { readonly master: Mesh; readonly y: number }[] = [
     { master: poleMaster, y: 3.7 },
@@ -819,15 +979,27 @@ function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
     for (const support of run.supports) {
       const destructibleParts: DestructiblePropPart[] = [];
       for (const part of poleParts) {
-        const instance = part.master.createInstance(`prop-tokyo-wire-pole-${poleIndex}`);
+        const instance = part.master.createInstance(
+          `prop-tokyo-wire-pole-${poleIndex}`,
+        );
         poleIndex += 1;
         instance.position.set(support.position.x, part.y, support.position.z);
         instance.isPickable = false;
         ctx.staticSceneryFreeze.push(instance);
-        ctx.registerShadowCaster(instance, support.position.x, support.position.z);
+        ctx.registerShadowCaster(
+          instance,
+          support.position.x,
+          support.position.z,
+        );
         destructibleParts.push({ node: instance, isLightPool: false });
       }
-      ctx.registerDestructibleProp("utility-pole", support.position.x, support.position.z, 1, destructibleParts);
+      ctx.registerDestructibleProp(
+        "utility-pole",
+        support.position.x,
+        support.position.z,
+        1,
+        destructibleParts,
+      );
     }
 
     for (let i = 0; i < run.supports.length - 1; i += 1) {
@@ -838,7 +1010,10 @@ function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
       const alongTotal = Math.hypot(dx, dz);
       if (alongTotal < 1e-3) continue;
       const heading = Math.atan2(dx, dz);
-      const spanRoot = new TransformNode(`jp-wire-span-${spanIndex}-root`, scene);
+      const spanRoot = new TransformNode(
+        `jp-wire-span-${spanIndex}-root`,
+        scene,
+      );
       spanRoots.push(spanRoot);
       spanRoot.position.set(a.x, run.supportHeightM, a.z);
       // This file's own "long dimension is local +x" convention
@@ -854,16 +1029,30 @@ function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
         // midspan — a faceted approximation of a hanging cable, not a
         // physically simulated catenary.
         const height = -run.sagM * 4 * t * (1 - t);
-        const segLengthM = Math.hypot(along - previous.along, height - previous.height);
+        const segLengthM = Math.hypot(
+          along - previous.along,
+          height - previous.height,
+        );
         const segment = createBox(
           scene,
           `jp-wire-span-${spanIndex}-seg-${seg}`,
-          { width: segLengthM, height: WIRE_THICKNESS_M, depth: WIRE_THICKNESS_M },
-          new Vector3((previous.along + along) / 2, (previous.height + height) / 2, 0),
+          {
+            width: segLengthM,
+            height: WIRE_THICKNESS_M,
+            depth: WIRE_THICKNESS_M,
+          },
+          new Vector3(
+            (previous.along + along) / 2,
+            (previous.height + height) / 2,
+            0,
+          ),
           cableMaterial,
           spanRoot,
         );
-        segment.rotation.z = Math.atan2(height - previous.height, along - previous.along);
+        segment.rotation.z = Math.atan2(
+          height - previous.height,
+          along - previous.along,
+        );
         cableSegments.push(segment);
         previous = { along, height };
       }
@@ -872,7 +1061,14 @@ function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
     }
   }
 
-  const cable = Mesh.MergeMeshes(cableSegments, true, true, undefined, false, false);
+  const cable = Mesh.MergeMeshes(
+    cableSegments,
+    true,
+    true,
+    undefined,
+    false,
+    false,
+  );
   if (cable) {
     cable.name = "jp-wire-cables";
     cable.isPickable = false;

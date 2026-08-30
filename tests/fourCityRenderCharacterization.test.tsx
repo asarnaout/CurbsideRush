@@ -1529,15 +1529,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> 19_937/19_893 (active 2_851): Cairo presents a sparse, kerb-safe
     // subset of its regulatory signs and suppresses the single Sixth October
     // pastry billboard that intersected the bridge. Materials stay stable.
-    // -> 20_078/20_034 (active 2_888, materials 375): 65 elevation-aware
+    // -> 20_054/20_010 (active 2_883, materials 375): 63 elevation-aware
     // Sixth October lamp stations add warm heads and additive road pools in
-    // 141 spatial batches; the lamp iron/head/pool are three materials. The
+    // 117 spatial batches; the lamp iron/head/pool are three materials. Two
+    // lower-ramp stations were deliberately suppressed where their complete
+    // pole/arm envelope pierced the upper mainline; that already-landed
+    // headroom fix changed no materials, mirrors or other city. The
     // other two materials are Tahrir ministries' deterministic warm/cool
     // occupied panes. Palette, bloom and texture-only horizon changes add no
     // meshes or materials. Other cities remain byte-for-byte unchanged.
-    totalMeshes: 20_078,
-    enabledMeshes: 20_034,
-    activeMeshes: 2_888,
+    totalMeshes: 20_054,
+    enabledMeshes: 20_010,
+    activeMeshes: 2_883,
     materials: 375,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

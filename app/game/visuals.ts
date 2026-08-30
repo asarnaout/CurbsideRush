@@ -85,15 +85,12 @@ export interface MapVisualPalette {
    */
   readonly night?: boolean;
   /**
-   * Night maps only: this palette's override of the moonlit rig's
-   * hemispheric/sun intensities (defaults 0.64/0.6 — NYC's tuning, applied
-   * when unset). The other three all run higher, and for one reason: their
-   * skies, grounds and sunTints are authored darker and less saturated than
-   * NYC's golden-sodium set, so the identical rig play-tests as "very dim"
-   * (the owner's words about Tokyo, which is what put these fields here).
-   * London and Tokyo carry the strongest broad fill. Cairo stays a step below
-   * them so its warm masonry keeps its real hue, then gets its extra energy
-   * from practical lights and Cairo-only bloom/window controls instead.
+   * Night maps only: this palette's override of the moonlit rig's legacy
+   * 0.64/0.6 hemispheric/sun baseline. London and Tokyo carry the strongest
+   * broad fill because their skies, grounds and sunTints are the darkest and
+   * least saturated. NYC and Cairo stay below them, then get their energy from
+   * practical lights, occupied panes and per-city bloom rather than a wall-
+   * wide brightness wash.
    */
   readonly nightHemiIntensity?: number;
   readonly nightSunIntensity?: number;
@@ -134,7 +131,9 @@ export type MapVisualKey = "nyc" | "london" | "tokyo" | "cairo";
  * left/right sense, that face open water and so skip the street wall and
  * get the corniche-style parapet + promenade decor instead.
  */
-export type OpenWaterfrontSides = Readonly<Partial<Record<string, readonly (-1 | 1)[]>>>;
+export type OpenWaterfrontSides = Readonly<
+  Partial<Record<string, readonly (-1 | 1)[]>>
+>;
 
 /**
  * Which map keys get the promenade parapet render pass
@@ -206,8 +205,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // sodium streetlights/windows pop against a cool, properly dark sky rather
     // than the flat grey a blue→amber dusk gradient washed out to.
     skyTop: "#0e1a33",
-    skyHorizon: "#22355a",
-    fogColor: "#1c2a44",
+    // The low sky and matching haze carry Manhattan's reflected city glow;
+    // the zenith stays dark, so this reads as light pollution rather than dusk.
+    skyHorizon: "#293d61",
+    fogColor: "#23344f",
     grassBase: "#3f6a3c",
     grassAlt: "#4d7c44",
     // Cool and deep: Central Park after dark is lit by the avenue, not the sun.
@@ -217,12 +218,21 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     dirtShoulder: "#6b5a3f",
     silhouetteNear: "#3a3742",
     silhouetteFar: "#6a5d55",
+    horizonWindowWarm: "#ffd08a",
+    horizonWindowCool: "#c7e4ff",
     sunTint: "#ffddab",
     // NYC is a paved city: concrete lots + sidewalks instead of the grass plane.
     paved: true,
     groundBase: "#34363b",
     pavement: "#45474c",
     night: true,
+    // Manhattan's extra brightness belongs to offices and street practicals,
+    // not an overpowered ambient rig that would flatten the brownstones.
+    nightHemiIntensity: 0.68,
+    nightSunIntensity: 0.64,
+    nightBloomThreshold: 0.68,
+    nightBloomWeight: 0.34,
+    nightWindowGlowIntensity: 0.42,
   },
   london: {
     // London after dark. The sky is the one thing that is NOT simply "NYC's
@@ -231,8 +241,8 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // warm violet-grey rather than a clean blue — the sodium glow bouncing off
     // low cloud that stops you ever seeing stars over Kensington.
     skyTop: "#101a2e",
-    skyHorizon: "#3c3743",
-    fogColor: "#262a38",
+    skyHorizon: "#4a414d",
+    fogColor: "#30303b",
     grassBase: "#2d4c36",
     grassAlt: "#395b3e",
     // Rich and damp, but unlit: the royal park's lawns keep their green only
@@ -242,8 +252,10 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     grassDry: "#4d5139",
     floraAccent: "#c8c5b6",
     dirtShoulder: "#4a4132",
-    silhouetteNear: "#282b39",
-    silhouetteFar: "#3b3a49",
+    silhouetteNear: "#35313d",
+    silhouetteFar: "#504852",
+    horizonWindowWarm: "#f4c982",
+    horizonWindowCool: "#d7e4df",
     // Moonlight, cooled: the "sun" runs at reduced intensity at night.
     sunTint: "#b9c2dc",
     // London is a paved city. Its ground was the grass plane until the map
@@ -261,13 +273,14 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     groundBase: "#3a3d43",
     pavement: "#5c5f62",
     night: true,
-    // Above NYC's 0.64/0.6 defaults for the same reason Tokyo is: this sky,
-    // ground and sunTint are all authored darker and less saturated than
-    // NYC's, so the identical rig reads as murk rather than as night. Held a
-    // notch under Cairo's, which has both a warmer bounce and a denser lit
-    // street wall to carry it.
+    // This sky, ground and sunTint are darker and less saturated than NYC's,
+    // so London keeps its stronger broad moonlit fill. Extra life comes from
+    // warm terrace panes and cool landmark lighting, not more ambient light.
     nightHemiIntensity: 0.78,
     nightSunIntensity: 0.7,
+    nightBloomThreshold: 0.65,
+    nightBloomWeight: 0.35,
+    nightWindowGlowIntensity: 0.42,
     // Night's own 100/440 m clamp (`resolveEffectiveFogRange`) governs the
     // live fog and the camera far plane now, and it is far tighter than this
     // — so this cap no longer changes anything a player sees. It stays for
@@ -290,16 +303,20 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     // asphalt, sakura pink kept as the one warm accent so it still reads
     // under bloom.
     skyTop: "#0a0f24",
-    skyHorizon: "#232a45",
-    fogColor: "#161b2e",
+    skyHorizon: "#33415f",
+    fogColor: "#252e46",
     grassBase: "#26391f",
     grassAlt: "#2e4527",
     grassDeep: "#182a18",
     grassDry: "#3d4a2c",
     floraAccent: "#e8a7bb",
     dirtShoulder: "#3a3a35",
-    silhouetteNear: "#2c3346",
-    silhouetteFar: "#1b2133",
+    // Far shapes must recede into the lit blue haze, never become darker
+    // cut-outs than the nearer roofs in front of them.
+    silhouetteNear: "#303a53",
+    silhouetteFar: "#46516d",
+    horizonWindowWarm: "#ffd08a",
+    horizonWindowCool: "#83d8ff",
     // Moonlight tint — the "sun" runs at reduced intensity at night, same as NYC.
     sunTint: "#9fb2e8",
     paved: true,
@@ -313,6 +330,9 @@ const MAP_VISUAL_PALETTES: Record<MapVisualKey, MapVisualPalette> = {
     night: true,
     nightHemiIntensity: 0.78,
     nightSunIntensity: 0.72,
+    nightBloomThreshold: 0.68,
+    nightBloomWeight: 0.35,
+    nightWindowGlowIntensity: 0.42,
     // No fogEndCapM: night's own 100/440m clamp (resolveEffectiveFogRange)
     // already governs a night map's draw distance — a second cap here would
     // just fight it.
@@ -426,7 +446,13 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
   "nyc-upper-west-side": {
     visualKey: "nyc",
     plateRegion: "us",
-    buildingSets: ["nyc-downtown", "nyc-midrise", "nyc-brownstone", "nyc-house", "nyc-shop"],
+    buildingSets: [
+      "nyc-downtown",
+      "nyc-midrise",
+      "nyc-brownstone",
+      "nyc-house",
+      "nyc-shop",
+    ],
     natureSets: natureSetsForMap("nyc"),
     complexionWeights: [4, 4, 4, 4, 4, 4],
     hairWeights: [7, 6, 4, 3, 3, 1],
@@ -455,7 +481,13 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
     // cities/tokyo.ts for the exact zone/road->set mapping. Every generator
     // zone now names a set; only the ~1-in-4 holdback parcels and the
     // hand-authored quarter stay procedural.
-    buildingSets: ["tokyo-house", "tokyo-shotengai", "tokyo-zakkyo", "tokyo-manshon", "tokyo-apato"],
+    buildingSets: [
+      "tokyo-house",
+      "tokyo-shotengai",
+      "tokyo-zakkyo",
+      "tokyo-manshon",
+      "tokyo-apato",
+    ],
     natureSets: natureSetsForMap("tokyo"),
     complexionWeights: [0, 1, 2, 6, 8, 7],
     hairWeights: [15, 5, 3, 1, 0, 0],
@@ -463,7 +495,12 @@ const MAP_VISUAL_PROFILES: Readonly<Record<string, MapVisualProfile>> = {
   "cairo-central-nile": {
     visualKey: "cairo",
     plateRegion: "eg",
-    buildingSets: ["cairo-corniche", "cairo-downtown", "cairo-zamalek", "cairo-westbank"],
+    buildingSets: [
+      "cairo-corniche",
+      "cairo-downtown",
+      "cairo-zamalek",
+      "cairo-westbank",
+    ],
     natureSets: natureSetsForMap("cairo"),
     complexionWeights: [3, 5, 6, 5, 4, 1],
     hairWeights: [12, 7, 3, 1, 0, 1],
@@ -535,8 +572,14 @@ export function skyGradientStops(
 ): readonly SkyGradientStop[] {
   return [
     { offset: 0, color: palette.skyTop },
-    { offset: 0.5, color: mixHexColors(palette.skyTop, palette.skyHorizon, 0.35) },
-    { offset: 0.8, color: mixHexColors(palette.skyTop, palette.skyHorizon, 0.78) },
+    {
+      offset: 0.5,
+      color: mixHexColors(palette.skyTop, palette.skyHorizon, 0.35),
+    },
+    {
+      offset: 0.8,
+      color: mixHexColors(palette.skyTop, palette.skyHorizon, 0.78),
+    },
     { offset: 1, color: palette.skyHorizon },
   ];
 }
@@ -579,7 +622,8 @@ export function resolveEffectiveFogRange(
   const range = resolveFogRange(worldSize);
   const cappedEnd =
     fogEndCapM !== undefined ? Math.min(range.end, fogEndCapM) : range.end;
-  if (!night) return { start: Math.min(range.start, cappedEnd), end: cappedEnd };
+  if (!night)
+    return { start: Math.min(range.start, cappedEnd), end: cappedEnd };
   return {
     start: Math.min(range.start, 100, cappedEnd),
     end: Math.min(cappedEnd, 440),
@@ -757,11 +801,11 @@ export function buildHorizonSilhouetteSpec(
 }
 
 /**
- * Cairo's skyline ring represents more city beyond the rendered draw radius,
- * not an uninhabited black cut-out. Seed a modest, irregular grid of occupied
- * rooms into its box silhouettes. This stays a texture-only detail (zero scene
- * meshes/draw calls) and intentionally does not generalise to the other maps:
- * Cairo is the palette that authors practical-light colours for the ring.
+ * The skyline ring represents more city beyond the rendered draw radius, not
+ * an uninhabited cut-out. Each city gets its own deterministic occupied-room
+ * rhythm: NYC's dense office grid, London's sparse warm terraces, Tokyo's
+ * mixed warm/cool mid-rises, and Cairo's busy apartment wall. This stays a
+ * texture-only detail: zero scene meshes, point lights or draw calls.
  */
 export function buildHorizonWindowLightSpec(
   mapId: string,
@@ -770,12 +814,59 @@ export function buildHorizonWindowLightSpec(
     hashStringToSeed(mapId),
   ),
 ): readonly HorizonWindowLight[] {
-  if (resolveMapVisualKey(mapId) !== "cairo") return [];
+  const key = resolveMapVisualKey(mapId);
+  const profile = {
+    nyc: {
+      columnsPerWidth: 110,
+      maxColumns: 6,
+      rowsPerHeight: 13,
+      maxRows: 9,
+      nearOccupiedPercent: 58,
+      farOccupiedPercent: 42,
+      isCool: (roll: number) => (roll >>> 8) % 3 === 0,
+    },
+    london: {
+      columnsPerWidth: 90,
+      maxColumns: 6,
+      rowsPerHeight: 14,
+      maxRows: 5,
+      nearOccupiedPercent: 42,
+      farOccupiedPercent: 26,
+      isCool: (roll: number) => (roll >>> 8) % 7 === 0,
+    },
+    tokyo: {
+      columnsPerWidth: 110,
+      maxColumns: 5,
+      rowsPerHeight: 15,
+      maxRows: 6,
+      nearOccupiedPercent: 56,
+      farOccupiedPercent: 38,
+      isCool: (roll: number) => (roll >>> 8) % 5 < 2,
+    },
+    cairo: {
+      columnsPerWidth: 100,
+      maxColumns: 5,
+      rowsPerHeight: 12,
+      maxRows: 6,
+      nearOccupiedPercent: 52,
+      farOccupiedPercent: 38,
+      isCool: (roll: number) => (roll >>> 8) % 5 === 0,
+    },
+  }[key];
   const lights: HorizonWindowLight[] = [];
   for (const [shapeIndex, shape] of shapes.entries()) {
     if (shape.kind !== "box") continue;
-    const columns = Math.max(2, Math.min(5, Math.round(shape.w * 100)));
-    const rows = Math.max(2, Math.min(6, Math.round(shape.h * 12)));
+    const columns = Math.max(
+      2,
+      Math.min(
+        profile.maxColumns,
+        Math.round(shape.w * profile.columnsPerWidth),
+      ),
+    );
+    const rows = Math.max(
+      2,
+      Math.min(profile.maxRows, Math.round(shape.h * profile.rowsPerHeight)),
+    );
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {
         const roll = hashStringToSeed(
@@ -783,13 +874,16 @@ export function buildHorizonWindowLightSpec(
         );
         // Near buildings carry a busier pattern; the far layer recedes with
         // fewer rooms on, instead of becoming a second equally bright wall.
-        const occupiedPercent = shape.layer === 0 ? 52 : 38;
+        const occupiedPercent =
+          shape.layer === 0
+            ? profile.nearOccupiedPercent
+            : profile.farOccupiedPercent;
         if (roll % 100 >= occupiedPercent) continue;
         lights.push({
           shapeIndex,
           u: (column + 1) / (columns + 1),
           v: (row + 1) / (rows + 1),
-          tone: (roll >>> 8) % 5 === 0 ? "cool" : "warm",
+          tone: profile.isCool(roll) ? "cool" : "warm",
         });
       }
     }
@@ -915,30 +1009,39 @@ export function buildAsphaltTextureSpec(
     }
     cracks.push({ points });
   }
-  const patches = Array.from({ length: rangedCount(random, profile.patchCount) }, () => ({
-    x: random(),
-    y: random(),
-    r:
-      profile.patchRadius[0] +
-      random() * (profile.patchRadius[1] - profile.patchRadius[0]),
-    lighten:
-      profile.patchLighten[0] +
-      random() * (profile.patchLighten[1] - profile.patchLighten[0]),
-  }));
-  const repairs = Array.from({ length: rangedCount(random, profile.repairCount) }, () => ({
-    x: random(),
-    y: random(),
-    width: 0.08 + random() * 0.24,
-    height: 0.018 + random() * 0.055,
-    rotation: (random() - 0.5) * 0.7,
-    darken: 0.08 + random() * 0.12,
-  }));
-  const dust = Array.from({ length: rangedCount(random, profile.dustCount) }, () => ({
-    x: random(),
-    y: random(),
-    radius: 0.0015 + random() * 0.006,
-    alpha: 0.025 + random() * 0.07,
-  }));
+  const patches = Array.from(
+    { length: rangedCount(random, profile.patchCount) },
+    () => ({
+      x: random(),
+      y: random(),
+      r:
+        profile.patchRadius[0] +
+        random() * (profile.patchRadius[1] - profile.patchRadius[0]),
+      lighten:
+        profile.patchLighten[0] +
+        random() * (profile.patchLighten[1] - profile.patchLighten[0]),
+    }),
+  );
+  const repairs = Array.from(
+    { length: rangedCount(random, profile.repairCount) },
+    () => ({
+      x: random(),
+      y: random(),
+      width: 0.08 + random() * 0.24,
+      height: 0.018 + random() * 0.055,
+      rotation: (random() - 0.5) * 0.7,
+      darken: 0.08 + random() * 0.12,
+    }),
+  );
+  const dust = Array.from(
+    { length: rangedCount(random, profile.dustCount) },
+    () => ({
+      x: random(),
+      y: random(),
+      radius: 0.0015 + random() * 0.006,
+      alpha: 0.025 + random() * 0.07,
+    }),
+  );
   return {
     noiseSeed: Math.floor(random() * 0xffff) + 1,
     cracks,
@@ -1261,13 +1364,15 @@ export function distanceToPolylineM(
     const dx = end.x - start.x;
     const dz = end.z - start.z;
     const lengthSquared = dx * dx + dz * dz;
-    const amount = lengthSquared < 1e-9
-      ? 0
-      : clamp(
-          ((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSquared,
-          0,
-          1,
-        );
+    const amount =
+      lengthSquared < 1e-9
+        ? 0
+        : clamp(
+            ((point.x - start.x) * dx + (point.z - start.z) * dz) /
+              lengthSquared,
+            0,
+            1,
+          );
     const x = start.x + dx * amount;
     const z = start.z + dz * amount;
     best = Math.min(best, Math.hypot(point.x - x, point.z - z));
@@ -1591,7 +1696,13 @@ export function generateRoadsidePropPlacements(
           const baseZ = start.z + tangentZ * along;
           const sides = kindConfig.bothSides
             ? [1, -1]
-            : [kindConfig.alternateSides ? sideToggle : random() < 0.5 ? 1 : -1];
+            : [
+                kindConfig.alternateSides
+                  ? sideToggle
+                  : random() < 0.5
+                    ? 1
+                    : -1,
+              ];
           if (kindConfig.alternateSides) sideToggle = -sideToggle;
 
           for (const side of sides) {
@@ -1614,7 +1725,10 @@ export function generateRoadsidePropPlacements(
             const scale =
               (kindConfig.minScale ?? 1) +
               random() *
-                Math.max(0, (kindConfig.maxScale ?? 1) - (kindConfig.minScale ?? 1));
+                Math.max(
+                  0,
+                  (kindConfig.maxScale ?? 1) - (kindConfig.minScale ?? 1),
+                );
             const drawn = Math.floor(random() * variantCount);
             const variant = variantPool ? variantPool[drawn] : drawn;
             // **A kerb-seated candidate stands on its own road's kerb, and
@@ -1645,14 +1759,12 @@ export function generateRoadsidePropPlacements(
             if (
               Math.abs(candidate.x) > halfWorldX ||
               Math.abs(candidate.z) > halfWorldZ ||
-              !isClearOfRoads(
-                candidate,
-                surface.id,
-                kindConfig.curbOffsetM,
-              ) ||
+              !isClearOfRoads(candidate, surface.id, kindConfig.curbOffsetM) ||
               (!kerbSeated &&
                 isOverWater(candidate, input.waterPolygons ?? [])) ||
-              input.blocks.some((rect) => isInsideInflatedRect(candidate, rect)) ||
+              input.blocks.some((rect) =>
+                isInsideInflatedRect(candidate, rect),
+              ) ||
               input.landmarks.some((rect) =>
                 isInsideInflatedRect(candidate, rect),
               ) ||
@@ -1710,9 +1822,7 @@ export interface PromenadeDecorInput {
   readonly waterPolygons: readonly (readonly VisualPoint[])[];
   /** Road side(s) that face open water (cairoContent's
    * CAIRO_OPEN_WATERFRONT_SIDES shape). */
-  readonly openSides: Readonly<
-    Partial<Record<string, readonly (-1 | 1)[]>>
-  >;
+  readonly openSides: Readonly<Partial<Record<string, readonly (-1 | 1)[]>>>;
   readonly sidewalkWidthM: number;
   readonly worldSize: VisualPoint;
   readonly seed: number;
@@ -1826,11 +1936,7 @@ export function generatePromenadeDecor(
       let station = 0;
       let nextAt = STATION_M / 2;
       let travelled = 0;
-      for (
-        let index = 1;
-        index < surface.centerline.length;
-        index += 1
-      ) {
+      for (let index = 1; index < surface.centerline.length; index += 1) {
         const start = surface.centerline[index - 1];
         const end = surface.centerline[index];
         const dx = end.x - start.x;
@@ -1886,25 +1992,27 @@ export function generatePromenadeDecor(
           // base, while applying this second envelope to every ground street
           // would unnecessarily thin established promenade dressing map-wide.
           const clearOfElevatedRoadsAt = (candidate: VisualPoint): boolean =>
-            (input.elevatedRoadSurfaces ?? input.roadSurfaces).every((other) => {
-              if (
-                other.id === surface.id ||
-                !other.centerline.some(
-                  (point) => (point.elevationM ?? 0) > 0.35,
-                )
-              ) {
-                return true;
-              }
-              // This is a physical deck-footprint check, not the generous
-              // junction opening used for the station base. Keep the existing
-              // promenade rhythm right up to a flyover while rejecting only
-              // props that would actually pierce its carriageway.
-              const otherEnvelope = other.widthM / 2 + 0.5;
-              return (
-                distanceToPolylineM(candidate, other.centerline) >
-                otherEnvelope
-              );
-            });
+            (input.elevatedRoadSurfaces ?? input.roadSurfaces).every(
+              (other) => {
+                if (
+                  other.id === surface.id ||
+                  !other.centerline.some(
+                    (point) => (point.elevationM ?? 0) > 0.35,
+                  )
+                ) {
+                  return true;
+                }
+                // This is a physical deck-footprint check, not the generous
+                // junction opening used for the station base. Keep the existing
+                // promenade rhythm right up to a flyover while rejecting only
+                // props that would actually pierce its carriageway.
+                const otherEnvelope = other.widthM / 2 + 0.5;
+                return (
+                  distanceToPolylineM(candidate, other.centerline) >
+                  otherEnvelope
+                );
+              },
+            );
           if (!clearOfOtherRoadsAt({ x: baseX, z: baseZ })) continue;
           const drop = (
             kind: string,
@@ -1996,16 +2104,7 @@ export function generatePromenadeDecor(
               placements.push(moved);
               return true;
             };
-            const alongShiftsM = [
-              6.5,
-              -6.5,
-              13,
-              -13,
-              19.5,
-              -19.5,
-              26,
-              -26,
-            ];
+            const alongShiftsM = [6.5, -6.5, 13, -13, 19.5, -19.5, 26, -26];
             for (const shiftAlongM of alongShiftsM) {
               if (tryRelocated(shiftAlongM)) return;
             }
@@ -2069,5 +2168,5 @@ export function hashStringToSeed(value: string): number {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0) || 1;
+  return hash >>> 0 || 1;
 }

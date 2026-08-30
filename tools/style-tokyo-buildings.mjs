@@ -29,12 +29,12 @@
  *      (izakaya ships a 4096² atlas; several others ship 2048²) via `sharp`
  *      — see the file-level dependency note below.
  *   4. Raise emissive materials that would not actually bloom under this
- *      map's real night pipeline (`bloomThreshold: 0.72`, post-`exposure`
+ *      map's real night pipeline (`bloomThreshold: 0.68`, post-`exposure`
  *      `1.55`× — babylonGameSession.ts) via `KHR_materials_emissive_strength`
  *      rather than by eye: `extractHighlights.fragment` computes
  *      `luma = dot((0.2126,0.7152,0.0722), color * exposure)` and blooms iff
- *      `luma >= threshold`, i.e. raw linear luma must clear `0.72/1.55 ≈
- *      0.4645`. Measured (not guessed) against the actual shipped pixels —
+ *      `luma >= threshold`, i.e. raw linear luma must clear `0.68/1.55 ≈
+ *      0.4387`. Measured (not guessed) against the actual shipped pixels —
  *      see `EMISSIVE_BOOSTS`'s own comments for the per-model numbers.
  *   5. Bake provenance into `asset.extras.curbsideRush`, the same shape
  *      `tools/style-london-terraces.mjs` uses.
@@ -131,7 +131,7 @@ const STRIP_NODES = {
  * `KHR_materials_emissive_strength` boosts, one entry per material that
  * measurably fails to bloom as shipped. Each `strength` is sized off the
  * material's *worst* (dimmest, most important-to-read) sampled linear
- * luma so that `luma * strength * 1.55 (night exposure)` clears the 0.72
+ * luma so that `luma * strength * 1.55 (night exposure)` clears the 0.68
  * night bloomThreshold with real margin (~1.5-2x), not just past the raw
  * breakeven — matching the working precedent already shipped in
  * `render/tokyoLandmarks.ts` (the Hikari Tower's deck-glow material).
@@ -143,7 +143,7 @@ const EMISSIVE_BOOSTS = {
     // Measured via sharp on the actual shipped pixels (sRGB, gamma-decoded
     // to linear before the luma dot product): the sign's red mass decodes
     // to ~(1.0, 0.006, 0.006) linear, luma ≈ 0.217 — raw, that clears only
-    // 0.217*1.55 = 0.336 of the 0.72 threshold, i.e. it would render as
+    // 0.217*1.55 = 0.336 of the 0.68 threshold, i.e. it would render as
     // flat unlit red with no bloom. A pure-red source is luma-capped at
     // 0.2126 no matter how saturated (red is 21% of the luma weight), so
     // the fix is strength, not hue. strength 3.2 lands the sign's raw luma
@@ -158,7 +158,7 @@ const EMISSIVE_BOOSTS = {
     // (emissiveFactor [1, 0.031, 0.032] and [1, 0.049, 0.069] — presumably
     // a kanji sign accent) and, being glTF core-spec factors (already
     // linear, no gamma decode needed), compute raw luma ≈ 0.237/0.252 —
-    // under the 0.4645 raw floor, so as-shipped they would not bloom.
+    // under the 0.4387 raw floor, so as-shipped they would not bloom.
     // "EmissionWhite" (luma 1.0) and "EmissionYellow" (luma 0.942) already
     // clear the threshold by a wide margin and are left untouched.
     // strength 2.2 lands both red materials' luma at ~0.52-0.56 raw
@@ -174,7 +174,7 @@ const EMISSIVE_BOOSTS = {
   // one surviving material ships the source's own baked-in
   // `KHR_materials_emissive_strength: 2` (99.Miles' own night-window tuning,
   // for whatever generic pipeline the source scene was authored against) —
-  // measured (not eyeballed) against THIS map's real bloomThreshold(0.72)/
+  // measured (not eyeballed) against THIS map's real bloomThreshold(0.68)/
   // exposure(1.55) via `sharp` over the actual shipped emissive PNGs
   // (2048x2048, pre-downscale): decoding every pixel to linear and averaging
   // luma over the "is this even a glow pixel" population (raw luma > 0.05,
@@ -183,10 +183,10 @@ const EMISSIVE_BOOSTS = {
   // (BACKGROUND_BUILDINGS_1) / ~0.27 (BACKGROUND_BUILDING_2) — real signage/
   // window content, not the rare maxed-out (luma 1.0) hotspots or the
   // near-zero background. At the source's own strength=2: 0.23*2*1.55=0.71
-  // and 0.27*2*1.55=0.84 — the dimmer family barely FAILS to clear 0.72, the
-  // brighter one barely clears with near-zero margin. Boosted to land both
-  // at a real ~1.75x margin over threshold (0.72*1.75=1.26): strength =
-  // 1.26/(luma*1.55), giving 3.53 (BUILDINGS_1, rounded to 3.5) and 3.0
+  // and 0.27*2*1.55=0.84 — the dimmer family now clears 0.68 by only ~5%,
+  // the brighter one by ~23%. Boosted to land both at a real ~1.75x margin
+  // over threshold (0.68*1.75=1.19): strength = 1.19/(luma*1.55), giving
+  // 3.34 (BUILDINGS_1, rounded up to 3.5) and 2.84 (rounded up to 3.0)
   // (BUILDING_2, already round). Applied via the SAME
   // `KHR_materials_emissive_strength` mechanism as the pre-existing entries
   // above — replaces the source's baked 2, does not stack with it.
@@ -266,7 +266,8 @@ const TARGETS = [
     id: "tokyo-konbini",
     title: "Konbini",
     author: "Arthur Sauvaget (https://sketchfab.com/hapsky)",
-    sourceUrl: "https://sketchfab.com/3d-models/konbini-6f66ee45303e4b90b1bcd13fad484269",
+    sourceUrl:
+      "https://sketchfab.com/3d-models/konbini-6f66ee45303e4b90b1bcd13fad484269",
     sourceSha256:
       "cd48ed4f594929f5ded7a85ee406b961f1f0ea3897288ba2daff1af3649c1763",
   },
@@ -319,7 +320,8 @@ const TARGETS = [
     id: "tokyo-ramen",
     title: "Ramen Shop",
     author: "Naitogosuto (https://sketchfab.com/ddar1342)",
-    sourceUrl: "https://sketchfab.com/3d-models/ramen-shop-4d189bf2710f422ea287718f968cea68",
+    sourceUrl:
+      "https://sketchfab.com/3d-models/ramen-shop-4d189bf2710f422ea287718f968cea68",
     sourceSha256:
       "2dd4df0a181e3d6aa6c5558ee2dcc481a22f410914a291e0719d27e85bce1b3a",
   },
@@ -435,7 +437,10 @@ function unlinkNamedNode(json, name) {
       unlinked = true;
     }
   }
-  if (!unlinked) throw new Error(`node ${name} (index ${nodeIndex}) was not linked anywhere`);
+  if (!unlinked)
+    throw new Error(
+      `node ${name} (index ${nodeIndex}) was not linked anywhere`,
+    );
   return nodeIndex;
 }
 
@@ -468,7 +473,10 @@ function applyEmissiveStrength(json, boost) {
     applied.push(material.name);
   }
   json.extensionsUsed = [
-    ...new Set([...(json.extensionsUsed ?? []), "KHR_materials_emissive_strength"]),
+    ...new Set([
+      ...(json.extensionsUsed ?? []),
+      "KHR_materials_emissive_strength",
+    ]),
   ];
   return applied;
 }
@@ -482,7 +490,10 @@ async function downscaleOversizedImages(json, bin) {
   for (const image of json.images ?? []) {
     if (image.bufferView === undefined) continue;
     const view = json.bufferViews[image.bufferView];
-    const bytes = bin.subarray(view.byteOffset, view.byteOffset + view.byteLength);
+    const bytes = bin.subarray(
+      view.byteOffset,
+      view.byteOffset + view.byteLength,
+    );
     const pipeline = sharp(bytes);
     const meta = await pipeline.metadata();
     const longSide = Math.max(meta.width ?? 0, meta.height ?? 0);
@@ -520,14 +531,20 @@ async function styleOne(target) {
   const metalFixed = fixDefaultMetalMaterials(json);
 
   const emissiveBoost = EMISSIVE_BOOSTS[target.id];
-  const emissiveApplied = emissiveBoost ? applyEmissiveStrength(json, emissiveBoost) : [];
-  if (emissiveBoost && emissiveApplied.length !== emissiveBoost.materials.length) {
+  const emissiveApplied = emissiveBoost
+    ? applyEmissiveStrength(json, emissiveBoost)
+    : [];
+  if (
+    emissiveBoost &&
+    emissiveApplied.length !== emissiveBoost.materials.length
+  ) {
     throw new Error(
       `${target.id}: expected emissive-strength materials [${emissiveBoost.materials}], found [${emissiveApplied}]`,
     );
   }
 
-  const { replacements, report: textureReport } = await downscaleOversizedImages(json, bin);
+  const { replacements, report: textureReport } =
+    await downscaleOversizedImages(json, bin);
   if (replacements.size) {
     bin = rebuildBufferViews(json, bin, replacements);
   }
@@ -566,15 +583,23 @@ async function styleOne(target) {
 
   const before = fs.statSync(file).size;
   console.log(`${target.id}:`);
-  if (strippedNames.length) console.log(`  stripped: ${strippedNames.join(", ")}`);
-  if (metalFixed.length) console.log(`  metallicFactor=0 fixed: ${metalFixed.join(", ")}`);
+  if (strippedNames.length)
+    console.log(`  stripped: ${strippedNames.join(", ")}`);
+  if (metalFixed.length)
+    console.log(`  metallicFactor=0 fixed: ${metalFixed.join(", ")}`);
   if (emissiveApplied.length) {
-    console.log(`  emissive strength ${emissiveBoost.strength}x: ${emissiveApplied.join(", ")}`);
+    console.log(
+      `  emissive strength ${emissiveBoost.strength}x: ${emissiveApplied.join(", ")}`,
+    );
   }
   for (const t of textureReport) {
-    console.log(`  texture ${t.name}: ${t.from} -> ${t.to} (${t.fromBytes}B -> ${t.toBytes}B)`);
+    console.log(
+      `  texture ${t.name}: ${t.from} -> ${t.to} (${t.fromBytes}B -> ${t.toBytes}B)`,
+    );
   }
-  console.log(`  file size: ${before} bytes${dry ? " (dry run, not written)" : ""}`);
+  console.log(
+    `  file size: ${before} bytes${dry ? " (dry run, not written)" : ""}`,
+  );
 }
 
 for (const target of TARGETS) {
@@ -608,7 +633,9 @@ const srgbToLinear = (value) =>
   value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 
 function linearColor(hex) {
-  const channels = [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+  const channels = [1, 3, 5].map((offset) =>
+    Number.parseInt(hex.slice(offset, offset + 2), 16),
+  );
   return [...channels.map((channel) => srgbToLinear(channel / 255)), 1];
 }
 
@@ -640,7 +667,8 @@ const MATERIAL_PALETTE_TARGETS = [
     author: "Kenney",
     title: "Skyscraper",
     sourceUrl: "https://poly.pizza/m/XST1j6kYsL",
-    sourceSha256: "43bbf6529e19c16ecfdf7ea563c63a1a46311997c6da5508a40d0977f927750c",
+    sourceSha256:
+      "43bbf6529e19c16ecfdf7ea563c63a1a46311997c6da5508a40d0977f927750c",
     modifications:
       "Copied from the committed nyc-tower-a.glb (same source model as cairo-tower-a.glb/london-tower-a.glb — modelLibrary keys asset containers by URL, so each city needs its own file); steel-blue-dark palette and matte material pass for the scramble backdrop.",
     materialPalette: {
@@ -681,7 +709,12 @@ const MATERIAL_PALETTE_TARGETS = [
       "obj:d326d20f0c29ad2499132dd7773aacab675946efadf18f56a926a5a8d004366a;mtl:df1c8f0fdff17e0fecffec423d57f240011a024d9d16b16ff092dfe8e72fb44a",
     modifications:
       "Converted from OBJ+MTL by tools/obj-to-glb.mjs (source hashes re-verified byte-identical to cairo-block-4story.glb's own recorded source); cool-grey palette and matte material pass for the ekimae mixed-use block.",
-    materialPalette: { ...TOKYO_BLOCK_BASE, Main: "#767b82", Light: "#c9cdd2", White: "#d8dbe0" },
+    materialPalette: {
+      ...TOKYO_BLOCK_BASE,
+      Main: "#767b82",
+      Light: "#c9cdd2",
+      White: "#d8dbe0",
+    },
   },
 ];
 
@@ -691,7 +724,8 @@ const TEXTURE_PALETTE_TARGETS = [
     author: "Kay Lousberg",
     title: "Building",
     sourceUrl: "https://poly.pizza/m/qOhhGLftam",
-    sourceSha256: "a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65",
+    sourceSha256:
+      "a98d4fa6bf1e261da717fbdeef7937ef7578af86db3ba31a14296d814cf44e65",
     modifications:
       "Copied from the committed cairo-walkup-a.glb (KayKit City Builder Bits; modelLibrary keys asset containers by URL, so Tokyo needs its own file even though the source model is identical); the shared swatch-atlas texture recoloured to a near-neutral white/grey render (per-pixel lightness preserved, saturation forced near zero, a slight cool tint — see tokyoManshonGreyTone) rather than Cairo's warm hue-band remap, and a matte material pass. Flat-roofed manshon; rooftop water tank is geometry, untouched by this texture-only pass.",
   },
@@ -700,7 +734,8 @@ const TEXTURE_PALETTE_TARGETS = [
     author: "Kay Lousberg",
     title: "Building",
     sourceUrl: "https://poly.pizza/m/T3oyvK6VEU",
-    sourceSha256: "ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede",
+    sourceSha256:
+      "ecda4d8e3a89bb751f61e179725ca59d2a19f7f3aa88fedd4fc371eb8f0eaede",
     modifications:
       "Copied from the committed cairo-walkup-b.glb; the shared swatch-atlas texture recoloured to a near-neutral white/grey render and a matte material pass. Flat-roofed manshon; rooftop water tank untouched.",
   },
@@ -761,11 +796,15 @@ function tokyoManshonGreyTone(r, g, b) {
 async function recolorSwatchTexture(pngBytes, toneFn) {
   const image = sharp(pngBytes);
   const { width, height } = await image.metadata();
-  const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await image
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const channels = info.channels;
   const cache = new Map();
   for (let offset = 0; offset < data.length; offset += channels) {
-    const key = (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2];
+    const key =
+      (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2];
     let next = cache.get(key);
     if (!next) {
       next = toneFn(data[offset], data[offset + 1], data[offset + 2]);
@@ -775,7 +814,9 @@ async function recolorSwatchTexture(pngBytes, toneFn) {
     data[offset + 1] = next[1];
     data[offset + 2] = next[2];
   }
-  return sharp(data, { raw: { width, height, channels } }).png({ compressionLevel: 9 }).toBuffer();
+  return sharp(data, { raw: { width, height, channels } })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
 }
 
 async function styleTexturePaletteOne(target) {
@@ -787,10 +828,18 @@ async function styleTexturePaletteOne(target) {
   for (const image of json.images ?? []) {
     if (image.bufferView === undefined) continue;
     const view = json.bufferViews[image.bufferView];
-    const bytes = bin.subarray(view.byteOffset, view.byteOffset + view.byteLength);
-    replacements.set(image.bufferView, await recolorSwatchTexture(bytes, tokyoManshonGreyTone));
+    const bytes = bin.subarray(
+      view.byteOffset,
+      view.byteOffset + view.byteLength,
+    );
+    replacements.set(
+      image.bufferView,
+      await recolorSwatchTexture(bytes, tokyoManshonGreyTone),
+    );
   }
-  const nextBin = replacements.size ? rebuildBufferViews(json, bin, replacements) : bin;
+  const nextBin = replacements.size
+    ? rebuildBufferViews(json, bin, replacements)
+    : bin;
 
   for (const material of json.materials ?? []) {
     const pbr = (material.pbrMetallicRoughness ??= {});
@@ -813,7 +862,9 @@ async function styleTexturePaletteOne(target) {
   };
 
   if (!dry) fs.writeFileSync(file, serializeGlb(json, nextBin));
-  console.log(`${target.id}: texture recoloured (${replacements.size} image(s))`);
+  console.log(
+    `${target.id}: texture recoloured (${replacements.size} image(s))`,
+  );
 }
 
 for (const target of MATERIAL_PALETTE_TARGETS) {
