@@ -820,6 +820,13 @@ provided its licence text travels with the fonts (included alongside them):
   (downloaded 2026-07-28; SHA-256
   `69cdf0bf005fdc9cc13fb5a8581697eb9ba8f761aeaf255fc717d14c62c38891`).
   Licence: `public/fonts/NotoSansArabic-OFL.txt`.
+- **Noto Sans JP** (`noto-sans-jp-tokyo-ads.woff2`) — The Noto Project
+  Authors. Custom Japanese glyph subset of weights 700 and 800, fetched from
+  the official Google Fonts CSS API on 2026-08-30 for Tokyo's runtime ad copy
+  (SHA-256
+  `7bb82e2a2d3d83f34dafe10f0a34a192caedb3684d52d9144876dc2edb5b084e`).
+  Specimen/source: `https://fonts.google.com/noto/specimen/Noto+Sans+JP`.
+  Licence: `public/fonts/NotoSansJP-OFL.txt`.
 
 ## Cairo authoring references — reference only
 
@@ -837,6 +844,18 @@ public-space character, and currency naming:
   for the renovated square's landscape and public-life character.
 - [Central Bank of Egypt](https://www.cbe.org.eg/en/) for the Egyptian pound
   (`EGP`) naming used by the economy.
+
+## Tokyo advertising references — reference only
+
+The project owner's five supplied Tokyo photographs and these official GO
+Tokyo guides were consulted only for stacked façade-sign density, the contrast
+between Shinjuku's narrow vertical signs and Shibuya's broad digital screens,
+and saturated night colour. None of their photography, brands or copy is
+bundled or reproduced:
+
+- [Tokyo at Night](https://www.gotokyo.org/en/story/guide/tokyo-at-night/index.html)
+- [A guide to Shinjuku](https://www.gotokyo.org/en/story/walks-and-tours/shinjuku/index.html)
+- [A guide to Shibuya](https://www.gotokyo.org/en/story/walks-and-tours/shibuya/index.html)
 
 ## First-party — created for Curbside Rush (no third-party rights)
 
@@ -865,6 +884,21 @@ public-space character, and currency naming:
   trademarks, political/religious imagery or sexual/inappropriate content.
   Arabic campaign copy remains separate and is composited by the game at
   runtime.
+- **`public/art/tokyo/fictional-ad-{portrait,landscape}-atlas-v2.webp`** and
+  **`art-source/tokyo/fictional-ads/*.webp`** — 28 original fictional
+  commercial artworks generated with OpenAI on 2026-08-30. The project owner's
+  five supplied Tokyo photographs and official GO Tokyo night-neighbourhood
+  guides informed only the high-key colour, editorial variety, vertical sign
+  rhythm and broad-screen energy; no photograph, real advertisement, brand,
+  recognisable person or layout is reproduced. The text-free, unbranded set
+  mixes fictional fashion/editorial scenes, food, travel, friendly characters,
+  animals, culture and abstract display art instead of Cairo's dark reflective
+  product-packshot treatment. It was reviewed to exclude inappropriate,
+  political and religious imagery. Twenty-five Japanese and three bilingual
+  campaigns are authored separately and composited at runtime; 24 additional
+  fictional Japanese tenant identities are runtime-only canvas art. The exact
+  shared generation brief and ordered subject list live beside the editable
+  source images in `art-source/tokyo/fictional-ads/README.md`.
 - **og.jpg** (the link-preview card) — generated with OpenAI (ChatGPT) by the
   project owner on 2026-07-24, who owns the output under OpenAI's Terms of Use.
   Downloaded as `curbside-rush-og-image-generic-vehicles.jpg`. A stylised

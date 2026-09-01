@@ -29,6 +29,13 @@
   font-display: swap;
   src: url("/fonts/noto-sans-arabic.woff2") format("woff2");
 }
+@font-face {
+  font-family: "Noto Sans JP";
+  font-style: normal;
+  font-weight: 700 800;
+  font-display: swap;
+  src: url("/fonts/noto-sans-jp-tokyo-ads.woff2") format("woff2");
+}
 
 :root {
   /* ── Dark-HUD design language ─────────────────────────────────────────── */

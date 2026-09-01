@@ -13,13 +13,12 @@ import { nearestPointOnPolyline } from "../geometry/roadStrips";
 import type { DestructiblePropPart } from "./propCatalog";
 import {
   TOKYO_CHOCHIN_POSTS,
-  TOKYO_NEON_SIGN_GEOMETRY,
-  TOKYO_NEON_SIGNS,
-  TOKYO_SCRAMBLE_BILLBOARDS,
   TOKYO_WIRE_RUNS,
 } from "../tokyoStreetFurniture";
+import type { BuildingLayoutPlan } from "../geometry/buildingLayout";
 import type { GameCanvasMapPack } from "../sessionContract";
 import { defaultSidewalkWidthM } from "../visuals";
+import { buildTokyoAdvertising } from "./tokyoAdvertising";
 
 /**
  * Tokyo's per-landmark dispatcher (cityRenderRegistry.ts), same `(ctx,
@@ -587,8 +586,8 @@ export function buildTokyoLandmark(
 }
 
 // ---------------------------------------------------------------------------
-// Street furniture (Tokyo expansion Phase 9, R14): chochin posts, downtown
-// neon sign boards, scramble billboards. The registry's `streetFurniture`
+// Street furniture (Tokyo expansion Phase 9, R14): chochin posts, generated
+// facade advertising, wired hero runs. The registry's `streetFurniture`
 // slot, same shape as `buildLondonStreetFurniture` — called once, no
 // per-landmark dispatch, since none of this is tied to an authored landmark.
 // ---------------------------------------------------------------------------
@@ -596,6 +595,7 @@ export function buildTokyoLandmark(
 export interface TokyoStreetFurnitureCtx {
   readonly scene: Scene;
   readonly staticSceneryFreeze: TransformNode[];
+  readonly buildingLayout: BuildingLayoutPlan;
   readonly registerShadowCaster: (
     mesh: AbstractMesh,
     x: number,
@@ -610,18 +610,6 @@ export interface TokyoStreetFurnitureCtx {
     elevationM?: number,
   ) => void;
 }
-
-/** Four neon face colours, built once and shared across every instance of that
- * variant — "a handful of materials, hundreds of instances" (plan §8.11),
- * not a material per sign. The housing uses the billboard frame material;
- * keeping the emissive material on the inset face alone prevents the narrow
- * sides reading as unsupported light rods. */
-const NEON_VARIANT_COLORS: readonly [Color3, Color3][] = [
-  [new Color3(0.4, 0.06, 0.24), new Color3(1.1, 0.18, 0.62)], // magenta
-  [new Color3(0.05, 0.26, 0.4), new Color3(0.14, 0.68, 1.05)], // cyan
-  [new Color3(0.07, 0.32, 0.15), new Color3(0.2, 1.0, 0.42)], // green
-  [new Color3(0.38, 0.24, 0.02), new Color3(1.05, 0.68, 0.08)], // amber
-];
 
 /**
  * Chochin (paper lantern) posts: a pole and a warm emissive lantern body
@@ -722,177 +710,6 @@ function buildChochinPosts(ctx: TokyoStreetFurnitureCtx): void {
   capMaterial.freeze();
 }
 
-/**
- * Downtown neon sign boards: a dark casing, one road-facing emissive panel and
- * two arms reaching back to a vertical facade plate, well above the reachable
- * band — never destructible, never a collider (the block behind each one
- * already collides). The plate spans narrow seams between adjacent facade
- * models, which an 8 cm arm can otherwise miss. Each colour is merged into one
- * compound MultiMaterial master, so every sign is still one cull/instance.
- */
-function buildNeonSigns(
-  ctx: TokyoStreetFurnitureCtx,
-  housingMaterial: StandardMaterial,
-): void {
-  if (!TOKYO_NEON_SIGNS.length) return;
-  const scene = ctx.scene;
-  const geometry = TOKYO_NEON_SIGN_GEOMETRY;
-  const masters = NEON_VARIANT_COLORS.map(
-    ([diffuse, emissive], variantIndex) => {
-      const material = makeMaterial(
-        scene,
-        `tokyo-neon-${variantIndex}`,
-        diffuse,
-        emissive,
-      );
-      const housing = createBox(
-        scene,
-        `prop-master-tokyo-neon-${variantIndex}-housing-source`,
-        {
-          width: geometry.housingWidthM,
-          height: geometry.housingHeightM,
-          depth: geometry.housingDepthM,
-        },
-        Vector3.Zero(),
-        housingMaterial,
-      );
-      const face = createBox(
-        scene,
-        `prop-master-tokyo-neon-${variantIndex}-face-source`,
-        {
-          width: geometry.panelWidthM,
-          height: geometry.panelHeightM,
-          depth: geometry.panelDepthM,
-        },
-        new Vector3(
-          0,
-          0,
-          geometry.housingDepthM / 2 + geometry.panelDepthM / 2 + 0.001,
-        ),
-        material,
-      );
-      const armCentreZ =
-        -(geometry.housingDepthM + geometry.facadeArmReachM) / 2;
-      const arms = geometry.facadeArmYOffsetsM.map((y, armIndex) =>
-        createBox(
-          scene,
-          `prop-master-tokyo-neon-${variantIndex}-arm-${armIndex}-source`,
-          {
-            width: geometry.facadeArmThicknessM,
-            height: geometry.facadeArmThicknessM,
-            depth: geometry.facadeArmReachM,
-          },
-          new Vector3(0, y, armCentreZ),
-          housingMaterial,
-        ),
-      );
-      const facadePlate = createBox(
-        scene,
-        `prop-master-tokyo-neon-${variantIndex}-facade-plate-source`,
-        {
-          width: geometry.facadePlateWidthM,
-          height: geometry.facadePlateHeightM,
-          depth: geometry.facadePlateDepthM,
-        },
-        new Vector3(
-          0,
-          0,
-          -geometry.housingDepthM / 2 -
-            geometry.facadeArmReachM +
-            geometry.facadePlateDepthM / 2,
-        ),
-        housingMaterial,
-      );
-      const target = new Mesh(`prop-master-tokyo-neon-${variantIndex}`, scene);
-      const mesh = Mesh.MergeMeshes(
-        [housing, face, ...arms, facadePlate],
-        true,
-        true,
-        target,
-        false,
-        true,
-      );
-      if (!mesh) {
-        target.dispose();
-        throw new Error(
-          `failed to assemble Tokyo neon sign variant ${variantIndex}`,
-        );
-      }
-      mesh.isVisible = false;
-      mesh.isPickable = false;
-      return { mesh, material };
-    },
-  );
-
-  let index = 0;
-  for (const sign of TOKYO_NEON_SIGNS) {
-    const master = masters[sign.variant % masters.length].mesh;
-    const instance = master.createInstance(`prop-tokyo-neon-${index}`);
-    index += 1;
-    instance.position.set(sign.position.x, sign.heightM, sign.position.z);
-    instance.rotation.y = (sign.headingDeg * Math.PI) / 180;
-    instance.isPickable = false;
-    ctx.staticSceneryFreeze.push(instance);
-  }
-
-  for (const { material } of masters) material.freeze();
-}
-
-/**
- * The 1-2 large billboard panels facing the scramble (`TOKYO_SCRAMBLE_
- * BILLBOARDS`) — a bright "screen" plus a dark bezel frame, individually
- * built (only two, so instancing would save nothing). Mounted well above the
- * reachable band; never destructible, never a collider.
- */
-function buildScrambleBillboards(
-  ctx: TokyoStreetFurnitureCtx,
-  frameMaterial: StandardMaterial,
-): void {
-  const scene = ctx.scene;
-  if (!TOKYO_SCRAMBLE_BILLBOARDS.length) return;
-  const screenMaterial = makeMaterial(
-    scene,
-    "tokyo-billboard-screen",
-    new Color3(0.08, 0.28, 0.4),
-    new Color3(0.55, 0.85, 1.15),
-  );
-  for (const billboard of TOKYO_SCRAMBLE_BILLBOARDS) {
-    const root = new TransformNode(`${billboard.id}-root`, scene);
-    root.position.set(
-      billboard.position.x,
-      billboard.mountHeightM,
-      billboard.position.z,
-    );
-    root.rotation.y = (billboard.headingDeg * Math.PI) / 180;
-    ctx.staticSceneryFreeze.push(root);
-    const frame = createBox(
-      scene,
-      `${billboard.id}-frame`,
-      {
-        width: billboard.widthM + 0.4,
-        height: billboard.heightM + 0.4,
-        depth: 0.3,
-      },
-      Vector3.Zero(),
-      frameMaterial,
-      root,
-    );
-    frame.isPickable = false;
-    ctx.staticSceneryFreeze.push(frame);
-    const screen = createBox(
-      scene,
-      `${billboard.id}-screen`,
-      { width: billboard.widthM, height: billboard.heightM, depth: 0.1 },
-      new Vector3(0, 0, 0.11),
-      screenMaterial,
-      root,
-    );
-    screen.isPickable = false;
-    ctx.staticSceneryFreeze.push(screen);
-  }
-  screenMaterial.freeze();
-}
-
 /** Sub-segments per span, approximating a shallow catenary as a faceted
  * polyline — enough for the dip to read as a curve from the chase camera
  * without spending a segment per metre. */
@@ -910,7 +727,7 @@ const WIRE_THICKNESS_M = 0.045;
  * build of the same recipe (this file's non-sharing house style, see
  * `buildChochinPosts`'s own comment). Cables are the opposite: never
  * destructible (they sit at 5.6-6.25 m, well above the reachable band, the
- * same reasoning neon signs/billboards use) and geometrically unique per
+ * same reasoning facade advertising uses) and geometrically unique per
  * span, so instancing would save nothing — instead every segment of every
  * span is built as a throwaway child of a scratch per-span `TransformNode`
  * (which supplies the span's own heading so a local `rotation.z` alone tilts
@@ -1084,18 +901,11 @@ function buildWireRuns(ctx: TokyoStreetFurnitureCtx): void {
   cableMaterial.freeze();
 }
 
-export function buildTokyoStreetFurniture(ctx: TokyoStreetFurnitureCtx): void {
-  // Neon kanban housings and scramble billboards are the same dark exterior
-  // sign casing. Sharing this existing material keeps the pass at its original
-  // material count even after giving the kanban real supports.
-  const signHousingMaterial = makeMaterial(
-    ctx.scene,
-    "tokyo-billboard-frame",
-    new Color3(0.09, 0.09, 0.1),
-  );
+export function buildTokyoStreetFurniture(
+  ctx: TokyoStreetFurnitureCtx,
+  mapPack: GameCanvasMapPack,
+): void {
   buildChochinPosts(ctx);
-  buildNeonSigns(ctx, signHousingMaterial);
-  buildScrambleBillboards(ctx, signHousingMaterial);
+  buildTokyoAdvertising(ctx, mapPack);
   buildWireRuns(ctx);
-  signHousingMaterial.freeze();
 }

@@ -2,8 +2,8 @@ import type { WorldPoint } from "./types";
 
 /**
  * Tokyo's hand-placed street furniture (Tokyo expansion Phase 9, R14): the
- * shotengai/station chochin (paper-lantern) posts, the downtown neon sign
- * boards and scramble billboards, and the parked-bicycle table — the same
+ * shotengai/station chochin (paper-lantern) posts, the parked-bicycle table,
+ * and two wired hero runs — the same
  * shape as `londonStreetFurniture.ts`'s pillar boxes / phone boxes / parked
  * cars, for the same reason: a table both the renderer
  * (`render/tokyoLandmarks.ts`'s `buildTokyoStreetFurniture`,
@@ -13,8 +13,8 @@ import type { WorldPoint } from "./types";
  *
  * Every position here was solver-checked against the real built map
  * (`TOKYO_MAP_PACK`'s blocks/landmarks/water/lane graph) with a scratchpad
- * script, never eyeballed — chochin posts and neon boards against block/
- * landmark/water containment and every intersecting carriageway;
+ * script, never eyeballed — chochin posts against block/landmark/water
+ * containment and every intersecting carriageway;
  * parked bicycles by the full `LONDON_PARKED_CARS` methodology at bicycle
  * scale (see that table's own header): clear of every lane centreline by a
  * bicycle's own envelope (much less than a car's 2.6 m), >= 18 m from every
@@ -104,97 +104,6 @@ export const TOKYO_CHOCHIN_POSTS: readonly TokyoChochinPost[] = [
   at("jp-chochin-ekimae-nishi-9", -132.0, 363.2, 180),
   at("jp-chochin-ekimae-nishi-10", -97.3, 358.7, 0),
   at("jp-chochin-ekimae-nishi-11", -62.6, 354.1, 180),
-];
-
-/**
- * A vertical neon sign board: a thin emissive box mounted a little proud of
- * a downtown facade, at a bracket-mounted "kanban" height rather than street
- * level — never destructible (it hangs above the reachable band, the same
- * reasoning `render/proceduralTextures.ts`'s facade window glow and this
- * file's own billboards are never destructible). `variant` selects one of a
- * handful of shared emissive colours built once in
- * `render/tokyoLandmarks.ts`, never a per-instance material.
- */
-export interface TokyoNeonSign {
-  readonly id: string;
-  readonly position: WorldPoint;
-  /** Clockwise yaw the panel's face points — away from the block it hangs
-   * on, toward the carriageway. */
-  readonly headingDeg: number;
-  readonly variant: number;
-  /** Mount height to the panel's own centre. */
-  readonly heightM: number;
-}
-
-/**
- * Shared geometry for Chūō-dōri's facade-mounted kanban. The authored sign
- * centres sit 9.8 m off the road centreline while the real block faces vary
- * from roughly 11.5–12.6 m, so the arms deliberately reach 3 m back into the
- * facade. A dark housing keeps the narrow edge from blooming like a floating
- * light rod; only the road-facing inset panel is emissive.
- */
-export const TOKYO_NEON_SIGN_GEOMETRY = Object.freeze({
-  panelWidthM: 1.3,
-  panelHeightM: 3,
-  panelDepthM: 0.02,
-  housingWidthM: 1.5,
-  housingHeightM: 3.2,
-  housingDepthM: 0.14,
-  facadeArmReachM: 3,
-  facadeArmThicknessM: 0.08,
-  facadeArmYOffsetsM: Object.freeze([-1.1, 1.1] as const),
-  // Wide enough to bridge the narrow frontage seam behind jp-neon-chuo-3;
-  // the arms meet this vertical plate instead of requiring their 8 cm axes
-  // to land on one exact facade model.
-  facadePlateWidthM: 0.8,
-  facadePlateHeightM: 2.5,
-  facadePlateDepthM: 0.08,
-});
-
-/**
- * Chūō-dōri's downtown stretch (the tallest, densest zone,
- * `TOKYO_ROAD_STYLE_OVERRIDE["jp-chuo-dori"]`), both flanks, six along-road
- * stations each — checked clear of every flanking block at 9.8 m off the
- * centreline (the 4-lane road's own half-width 6.8 m + 3 m, inside the
- * pavement gap ahead of the real block face at ~11.5-12.6 m). The renderer's
- * 3 m facade arms bridge that whole variable gap. Heights alternate low/high
- * so the corridor reads as layered signage, not one shelf.
- */
-export const TOKYO_NEON_SIGNS: readonly TokyoNeonSign[] = [
-  { id: "jp-neon-chuo-1", position: { x: 449.8, z: -130 }, headingDeg: 270, variant: 0, heightM: 4.5 },
-  { id: "jp-neon-chuo-2", position: { x: 430.2, z: -130 }, headingDeg: 90, variant: 1, heightM: 7.2 },
-  { id: "jp-neon-chuo-3", position: { x: 449.8, z: -80 }, headingDeg: 270, variant: 2, heightM: 6.0 },
-  { id: "jp-neon-chuo-4", position: { x: 430.2, z: -80 }, headingDeg: 90, variant: 3, heightM: 4.8 },
-  { id: "jp-neon-chuo-5", position: { x: 449.8, z: -20 }, headingDeg: 270, variant: 1, heightM: 5.4 },
-  { id: "jp-neon-chuo-6", position: { x: 430.2, z: -20 }, headingDeg: 90, variant: 0, heightM: 7.6 },
-  { id: "jp-neon-chuo-7", position: { x: 449.8, z: 70 }, headingDeg: 270, variant: 3, heightM: 4.6 },
-  { id: "jp-neon-chuo-8", position: { x: 430.2, z: 70 }, headingDeg: 90, variant: 2, heightM: 6.8 },
-  { id: "jp-neon-chuo-9", position: { x: 449.8, z: 190 }, headingDeg: 270, variant: 0, heightM: 5.8 },
-  { id: "jp-neon-chuo-10", position: { x: 430.2, z: 190 }, headingDeg: 90, variant: 1, heightM: 4.4 },
-  { id: "jp-neon-chuo-11", position: { x: 449.8, z: 260 }, headingDeg: 270, variant: 2, heightM: 7.0 },
-  { id: "jp-neon-chuo-12", position: { x: 430.2, z: 260 }, headingDeg: 90, variant: 3, heightM: 5.2 },
-];
-
-/**
- * A large billboard panel facing the scramble (Chūō-dōri x Ekimae-dōri,
- * `TOKYO_SCRAMBLE_NODE_ID` in `cities/tokyo.ts`) — the Shibuya-crossing
- * read. Two, on diagonally opposite corners so a driver approaching from
- * any of the four arms sees one face-on. Mounted well above the reachable
- * band; never destructible, never a collider (the corner blocks it hangs
- * off already provide the real collision).
- */
-export interface TokyoScrambleBillboard {
-  readonly id: string;
-  readonly position: WorldPoint;
-  readonly headingDeg: number;
-  readonly widthM: number;
-  readonly heightM: number;
-  readonly mountHeightM: number;
-}
-
-export const TOKYO_SCRAMBLE_BILLBOARDS: readonly TokyoScrambleBillboard[] = [
-  { id: "jp-billboard-scramble-ne", position: { x: 451, z: 155 }, headingDeg: 225, widthM: 9, heightM: 5, mountHeightM: 13 },
-  { id: "jp-billboard-scramble-sw", position: { x: 429, z: 125 }, headingDeg: 45, widthM: 9, heightM: 5, mountHeightM: 13 },
 ];
 
 /** The four bicycle-scale glbs a parked bike may use — today there is only
@@ -384,17 +293,13 @@ export const TOKYO_WIRE_RUNS: readonly TokyoWireRun[] = [
 /**
  * Every hand-placed Phase 9 furniture point, for the roadside scatter's
  * keep-out (`render/propCatalog.ts`'s `TOKYO_FURNITURE_POINTS`) — mirrors
- * `LONDON_FURNITURE_POINTS`'s own shape exactly. Neon boards/billboards are
- * elevated well above the scatter's own placements, but are included anyway
- * (cheap insurance, same as London including its post boxes) since nothing
- * about the generic scatter knows about height. Wire-run supports are
+ * `LONDON_FURNITURE_POINTS`'s own shape exactly. Wire-run supports are
  * included so the scatter's own random utility poles never double one of
- * these hand-placed ones a few metres away.
+ * these hand-placed ones a few metres away. The facade-mounted advertising
+ * layer is derived from the building plan and needs no pavement root keep-out.
  */
 export const TOKYO_STREET_FURNITURE_POINTS: readonly WorldPoint[] = [
   ...TOKYO_CHOCHIN_POSTS.map((p) => p.position),
-  ...TOKYO_NEON_SIGNS.map((p) => p.position),
-  ...TOKYO_SCRAMBLE_BILLBOARDS.map((p) => p.position),
   ...TOKYO_PARKED_BICYCLES.map((p) => p.position),
   ...TOKYO_WIRE_RUNS.flatMap((run) => run.supports.map((s) => s.position)),
 ];

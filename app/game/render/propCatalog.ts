@@ -59,9 +59,9 @@ export const LONDON_FURNITURE_POINTS: readonly GameCanvasPoint[] = [
 ];
 
 /** Tokyo's own version of `LONDON_FURNITURE_POINTS` (Tokyo expansion Phase
- * 9): every hand-placed chochin post, neon sign, scramble billboard and
- * parked bicycle, so the generic roadside scatter (vending machines, utility
- * poles, trees) never lands on top of one. */
+ * 9): every hand-placed chochin post, wired-run support and parked bicycle,
+ * so the generic roadside scatter (vending machines, utility poles, trees)
+ * never lands on top of one. Facade advertising has no pavement root. */
 export const TOKYO_FURNITURE_POINTS: readonly GameCanvasPoint[] = TOKYO_STREET_FURNITURE_POINTS;
 
 /**

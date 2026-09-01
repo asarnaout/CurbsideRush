@@ -161,6 +161,21 @@ vi.mock("../app/game/arabicFont", async (importOriginal) => {
   };
 });
 
+vi.mock("../app/game/japaneseFont", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../app/game/japaneseFont")>();
+  return {
+    ...mod,
+    ensureJapaneseCanvasFontLoaded: async () => {},
+    inspectJapaneseCanvasFont: () => ({
+      loaded: true,
+      family: mod.JAPANESE_CANVAS_FONT_FAMILY,
+      sampleWidth: 100,
+      inkPixels: 1,
+      source: mod.JAPANESE_CANVAS_FONT_SOURCE,
+    }),
+  };
+});
+
 import GameCanvas from "../app/game/GameCanvas";
 import {
   CAIRO_FREE_DRIVE,

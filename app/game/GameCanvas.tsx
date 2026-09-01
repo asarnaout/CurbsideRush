@@ -41,6 +41,11 @@ import {
   ensureArabicCanvasFontLoaded,
   inspectArabicCanvasFont,
 } from "./arabicFont";
+import {
+  assertJapaneseCanvasFontDebug,
+  ensureJapaneseCanvasFontLoaded,
+  inspectJapaneseCanvasFont,
+} from "./japaneseFont";
 import type {
   CameraMode,
   CutsceneRequest,
@@ -345,6 +350,20 @@ export function GameCanvas({
             ).__sideswapArabicFontDebug = fontDebug;
             canvas.dataset.arabicFontQa = JSON.stringify(fontDebug);
           }
+          if (mapPack.id === "tokyo-setagaya") {
+            setLoadProgress({
+              fraction: 0.02,
+              label: "Loading Tokyo lettering…",
+            });
+            await ensureJapaneseCanvasFontLoaded();
+            if (!alive) return;
+            const fontDebug = inspectJapaneseCanvasFont();
+            assertJapaneseCanvasFontDebug(fontDebug);
+            (
+              window as unknown as Record<string, unknown>
+            ).__sideswapJapaneseFontDebug = fontDebug;
+            canvas.dataset.japaneseFontQa = JSON.stringify(fontDebug);
+          }
           const session = new BabylonGameSession(
             canvas,
             {
@@ -420,6 +439,12 @@ export function GameCanvas({
             window as unknown as Record<string, unknown>
           ).__sideswapArabicFontDebug;
           delete canvas.dataset.arabicFontQa;
+        }
+        if (mapPack.id === "tokyo-setagaya") {
+          delete (
+            window as unknown as Record<string, unknown>
+          ).__sideswapJapaneseFontDebug;
+          delete canvas.dataset.japaneseFontQa;
         }
         if (sessionRef.current === ownedSession) sessionRef.current = null;
         ownedSession?.dispose();

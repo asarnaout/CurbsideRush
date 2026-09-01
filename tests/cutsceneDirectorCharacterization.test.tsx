@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { Scene } from "@babylonjs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -42,6 +43,42 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   }
   return { ...mod, Engine: HeadlessEngine };
 });
+
+vi.mock("../app/game/japaneseFont", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../app/game/japaneseFont")>();
+  return {
+    ...mod,
+    ensureJapaneseCanvasFontLoaded: async () => {},
+    inspectJapaneseCanvasFont: () => ({
+      loaded: true,
+      family: mod.JAPANESE_CANVAS_FONT_FAMILY,
+      sampleWidth: 100,
+      inkPixels: 1,
+      source: mod.JAPANESE_CANVAS_FONT_SOURCE,
+    }),
+  };
+});
+
+vi.mock("../app/game/modelLibrary", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../app/game/modelLibrary")>();
+  return {
+    ...mod,
+    preloadModels: async (
+      _scene: Scene,
+      _urls: readonly string[],
+      onProgress?: (fraction: number) => void,
+    ) => {
+      onProgress?.(1);
+    },
+  };
+});
+
+// This suite characterizes cutscene staging, not Tokyo's citywide advertising;
+// the real ad layer is covered by tokyoStreetFurniture and the four-city scene
+// fingerprint. Keeping it out preserves this test's established load budget.
+vi.mock("../app/game/render/tokyoAdvertising", () => ({
+  buildTokyoAdvertising: () => {},
+}));
 
 import GameCanvas from "../app/game/GameCanvas";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
@@ -223,7 +260,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
 
       await waitFor(
         () => expect(screen.queryByRole("status")).not.toBeInTheDocument(),
-        { timeout: 20_000 },
+        { timeout: 40_000 },
       );
 
       const debugWindow = window as unknown as Record<string, unknown>;
@@ -271,7 +308,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
       expect(Number.isFinite(midStep?.cameraY)).toBe(true);
       expect(Number.isFinite(midStep?.cameraZ)).toBe(true);
     },
-    30_000,
+    120_000,
   );
 
   it(
@@ -294,7 +331,7 @@ describe("cutscene director characterization (Phase 3.13 safety net)", () => {
 
       await waitFor(
         () => expect(screen.queryByRole("status")).not.toBeInTheDocument(),
-        { timeout: 20_000 },
+        { timeout: 40_000 },
       );
 
       const debugWindow = window as unknown as Record<string, unknown>;

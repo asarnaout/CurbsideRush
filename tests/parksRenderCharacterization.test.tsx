@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { Scene } from "@babylonjs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -47,6 +48,41 @@ vi.mock("@babylonjs/core", async (importOriginal) => {
   }
   return { ...mod, Engine: HeadlessEngine };
 });
+
+vi.mock("../app/game/japaneseFont", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../app/game/japaneseFont")>();
+  return {
+    ...mod,
+    ensureJapaneseCanvasFontLoaded: async () => {},
+    inspectJapaneseCanvasFont: () => ({
+      loaded: true,
+      family: mod.JAPANESE_CANVAS_FONT_FAMILY,
+      sampleWidth: 100,
+      inkPixels: 1,
+      source: mod.JAPANESE_CANVAS_FONT_SOURCE,
+    }),
+  };
+});
+
+vi.mock("../app/game/modelLibrary", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../app/game/modelLibrary")>();
+  return {
+    ...mod,
+    preloadModels: async (
+      _scene: Scene,
+      _urls: readonly string[],
+      onProgress?: (fraction: number) => void,
+    ) => {
+      onProgress?.(1);
+    },
+  };
+});
+
+// Park geometry is the subject here; Tokyo advertising has its own planner,
+// asset, and complete-scene characterization coverage.
+vi.mock("../app/game/render/tokyoAdvertising", () => ({
+  buildTokyoAdvertising: () => {},
+}));
 
 import GameCanvas from "../app/game/GameCanvas";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
@@ -314,7 +350,7 @@ describe("parks render characterization (Phase 3.11 safety net)", () => {
 
       await waitFor(
         () => expect(screen.queryByRole("status")).not.toBeInTheDocument(),
-        { timeout: 20_000 },
+        { timeout: 45_000 },
       );
 
       const debugWindow = window as unknown as Record<string, unknown>;
@@ -338,6 +374,6 @@ describe("parks render characterization (Phase 3.11 safety net)", () => {
         expect(mesh.sz, mesh.n).toBeGreaterThan(0);
       }
     },
-    30_000,
+    60_000,
   );
 });

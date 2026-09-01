@@ -55,8 +55,8 @@ describe("cityRenderRegistry", () => {
     // Phase 3 of the Tokyo expansion (river + three bridges) — the bridge
     // dressing (parapets/guardrails/lamps/the Kawanaka-bashi arch) needs a
     // bespoke builder the same way NYC's and Cairo's bridges/landmarks do.
-    // Street furniture (chochin posts, neon boards, scramble billboards) is
-    // Phase 9's (R14) — the same registry slot London's own furniture uses.
+    // Street furniture (chochin posts, facade advertising, wired hero runs)
+    // uses the same registry slot as London's own furniture.
     const entry = cityRenderRegistryFor(TOKYO_MAP_PACK.id);
     expect(entry?.landmarks).toBe(buildTokyoLandmark);
     expect(entry?.streetFurniture).toBe(buildTokyoStreetFurniture);

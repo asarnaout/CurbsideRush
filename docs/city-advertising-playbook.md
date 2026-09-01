@@ -1,308 +1,228 @@
 # City advertising, signs and billboards
 
 Use this playbook when adding a dense commercial-sign layer to another map.
-It records the cross-file decisions behind Cairo's implementation and, more
-importantly, the failure modes that were not obvious from a single screenshot.
-The Cairo source of truth is `app/game/cairoAdvertising.ts`; the Babylon builder
-is `app/game/render/cairoAdvertising.ts`.
+The current source pairs are `cairoAdvertising.ts`/`render/cairoAdvertising.ts`
+and `tokyoAdvertising.ts`/`render/tokyoAdvertising.ts`.
 
-This is a recipe, not a request to copy Cairo's language, creative direction or
-counts into every city. Keep the architecture and safety invariants; author the
-campaigns, density, structures and local language for the destination.
+The architecture and safety checks are reusable. The mounting language,
+creative direction, density and local-language mix are not. Cairo and Tokyo are
+deliberately different systems.
 
-## The target look
+## Start with the city silhouette
 
-Advertising is a city layer, not random decoration near the player spawn. A
-successful pass has three readable scales:
+Advertising is a city layer, not a handful of props around one landmark. Study
+driving-height references and decide which physical forms make that place read:
 
-- repeated portrait campaigns on lamp-style poles along ordinary streets;
-- large landscape boards that remain legible while approaching at speed; and
-- bridge/expressway structures visible over long sightlines.
+- Cairo uses repeated pole banners, freestanding skyline boards, parapet signs
+  and bridge gantries.
+- Tokyo uses building-mounted campaign posters and screens, rooftop screens,
+  projecting tenant kanban, tenant-directory ladders and storefront fascia.
+  It has no advertising poles, pedestals, parapet signs or bridge gantries.
 
-The layer should feel bright, glossy and attention-seeking at night. Use a
-controlled emissive face, high specular response and small fixture lights. Do
-not turn the surrounding wall or road into a light source. Judge the result
-while driving, not only from a free camera directly in front of a sign.
+Tokyo's small tenant signs are not filler around the “real” billboards. Their
+repetition and vertical stacking create the street wall; broad screens supply
+punctuation only on procedural commercial hosts. Residential-style hosts,
+identified from their authored building set or residential asset model, receive
+only narrow projecting blade kanban; non-residential authored/modelled hosts may
+also carry fascia and directories, but never campaigns. Reusing Cairo's roadside
+structures or glossy dark-background product-packshot art would erase that
+distinction.
 
-## Content is data, artwork is imagery
+Judge the result from the chase camera while moving in both directions. A sign
+that looks good from a free camera directly in front of it may be edge-on,
+occluded or too small for a driver.
 
-Keep every headline and subline in an auditable creative table like
-`CAIRO_AD_CREATIVES`. The current product rules are:
+## Keep copy auditable and artwork text-free
 
-- every campaign has visible text; image-only panels are not acceptable;
-- use fictional, vague campaigns and no real company names or logos;
-- exclude sexual, political and religious advertising;
-- use the destination's language prominently, with a smaller natural mix of
-  English or bilingual campaigns where appropriate; and
-- keep generated art free of baked text. Image-generation lettering is both
-  unreliable and impossible to review systematically.
+Store every campaign headline and subline in a table such as
+`CAIRO_AD_CREATIVES` or `TOKYO_AD_CREATIVES`. Tenant names and details belong in
+their own table when they are a separate sign family. The content rules are:
 
-A word blacklist and language-count test cannot determine whether imagery or
-copy is sexual, political, religious or accidentally resembles a real logo.
-Those policy checks still require human review of every creative and atlas cell.
+- use fictional, generic campaigns and businesses with no real names or logos;
+- exclude sexual, political and religious content;
+- lead with the destination's language, with only a deliberate minority of
+  bilingual copy; and
+- keep generated artwork free of baked words, pseudo-writing, numbers and
+  marks. Runtime text is reviewable and does not inherit ImageGen lettering.
 
-Compose copy at runtime on `DynamicTexture` layers. Cairo uses the bundled
-shaping-capable Arabic font through `ARABIC_CANVAS_FONT_FAMILY`; a new script or
-language needs an equivalent verified font path. Put image and copy on separate
-planes so either can change without regenerating the other.
+A blacklist and language-count test do not prove the imagery safe or original.
+Human-review every source cell as well as the authored copy.
 
-If artwork is stored in an atlas, never assume the visual cells are an exact
-mathematical grid. Cairo's generated 2-by-4 atlas had irregular row boundaries;
-equal quarter-height UVs sampled the neighbouring campaign and repeated a strip
-at the top. Measure the source-pixel edges, encode them in a pure crop helper
-like `cairoAdAtlasUv`, inset each edge by a few pixels, use clamp addressing and
-account for Babylon's `invertY` setting. Add a crop test for every cell.
-The current crop test pins constants, not the PNG's bytes; a replaceable-asset
-workflow should also verify the committed image dimensions or checksum so new
-pixels cannot silently invalidate old measured edges.
+Compose copy on separate `DynamicTexture` planes. Cairo gates rendering on its
+bundled shaping-capable Arabic font; Tokyo uses the bundled Noto Sans JP subset
+through `ensureJapaneseCanvasFontLoaded`. Keep image and copy planes separate so
+either can change without regenerating the other.
 
-Record generated/imported-art provenance in `CREDITS.md` and keep any required
-source prompt or licence information with the asset entry.
+Generated/imported art needs provenance in `CREDITS.md`; retain the exact shared
+brief and ordered subject list beside editable source cells.
 
-## Keep planning separate from rendering
+## Atlas cells are an interface
 
-Follow Cairo's split:
+Never assume generated atlas cells form an exact mathematical grid. Cairo's
+original 2-by-4 source had irregular boundaries, so `cairoAdAtlasUv` records
+measured pixel edges. Tokyo's portrait and landscape atlases are built
+mechanically from normalized cells, and `tokyoAdAtlasUv` applies a pixel inset.
+In both cases account for Babylon's `invertY`, use clamp addressing and test
+every crop for neighbouring-cell bleed.
 
-- the city planning module owns campaigns, copy, deterministic station rules,
-  placement geometry and collision decisions;
-- the render module owns Babylon meshes, materials, textures and instancing;
-- `CITY_RENDER_REGISTRY` attaches the builder to exactly one map; and
-- `BabylonGameSession` passes the exact session `BuildingLayoutPlan` into both
-  the city builder and any system that reserves advertising space.
+The visible textured face of Tokyo's box-based masters is the Babylon `+Z`
+face. Its campaign art, campaign copy and every tenant texture must invert both
+U and V; fixing only V leaves Japanese copy mirrored even when art looks upright.
 
-Do not recompute buildings with a hard-coded traffic seed. Career/free-drive
-scenarios can supply different authored inputs; the billboard planner must see
-the same `BuildingLayoutPlan` that the renderer sees. Cairo caches its placement
-array by that plan object so `buildRoadsideProps` and `buildCairoAdvertising`
-consume identical results without paying for the gap search twice.
+Pin committed atlas dimensions and checksums. If the source art changes, rerun
+the importer and update the checksum deliberately; do not replace runtime bytes
+without proving the crop contract still holds.
 
-Fixed reservation sets should use a conservative spatial broadphase once they
-grow beyond trivial size. Cairo indexes each complete OBB AABB into every
-touched 48 m cell, queries the candidate installation AABB, restores original
-reservation order, and then applies the unchanged exact OBB SAT. Inclusive cell
-boundaries are required because tangency counts as overlap. Never index only an
-OBB centre, and never reorder the first-valid cant/offset/side/setback search or
-the sequential accepted-board list.
+## Planning and rendering stay separate
 
-## Author campaigns along whole corridors
+The city planning module owns copy, deterministic density rules, placement
+geometry and collision/visibility decisions. The render module owns Babylon
+meshes, materials, textures and instancing. `CITY_RENDER_REGISTRY` attaches the
+builder to exactly one map.
 
-Define named corridor rules with a station spacing, start pad, end pad, initial
-creative and side rhythm. Test the whole map:
+Pass the exact session `BuildingLayoutPlan` to every consumer. Do not recompute
+buildings with a hard-coded traffic seed: career and free-drive can have
+different authored inputs. Both advertising planners cache against the plan
+object so rendering and roadside reservations see the same result.
 
-- every intended arterial/collector is represented;
-- long roads have a minimum number of repeated signs;
-- north/south and east/west regions all receive coverage;
-- bridges and approaches receive explicit coverage; and
-- the result is not concentrated around the default spawn.
+Use conservative spatial broadphases once reservations grow. Index every cell
+touched by an envelope's AABB, restore deterministic candidate order after the
+query, then run the exact geometric test. Indexing only an object's centre can
+miss a long face crossing the query cell.
 
-Change campaigns in runs rather than randomly at every pole. Repetition is what
-makes a citywide buy read as a campaign. Give every placement a deterministic,
-unique ID derived from corridor, station and chosen side.
+## Coverage is a measured contract
 
-Treat structures as different placement kinds. Cairo has `pole-banner`,
-`skyline-billboard`, `bridge-side-sign` and `bridge-gantry`; each has different
-geometry and safety rules. Do not force them through one generic root-point
-test.
+Do not optimize for maximum separation between a few props; that creates a map
+where a driver sees nothing for minutes. Test road coverage and approach
+frequency across the full map:
 
-Cairo's skyline boards are freestanding, double-sided structures. Façade wraps,
-roof mounts and building-mounted signs need separate envelopes and mounting
-rules rather than borrowing the pedestal assumptions below.
+- the spawn district, signature core, remote arterials and ordinary satellite
+  streets all receive signs;
+- long commercial roads have repeated hosts rather than one representative;
+- several sign families can share one building when the city calls for a
+  stacked frontage; and
+- placements have deterministic unique IDs and stable creative rotation.
 
-## Pole banners
+Tokyo classifies road-facing hosts as `core`, `corridor` or `satellite`. The
+spawn district and downtown are both core; selected host spacing is
+approximately 7 m, 19 m and 38 m respectively. Core hosts may carry several
+projecting blades; non-residential hosts may also carry fascia or a directory,
+while campaign posters/screens repeat at a lower cadence only on procedural
+hosts. The current shipped plan
+has 4,288 placements on 1,450 distinct buildings across 99 roads. The unique-host
+count matters as much as the placement count: stacking more signs on the same
+few facades does not create citywide continuity.
 
-Seat a pole inside the source sidewalk/pavement band, face its double-sided card
-head-on to traffic, and reserve the complete foreign-road pavement envelope at
-junctions. A point that is a valid kerb offset from one road can be the centre of
-a crossing road. Keep rail reservations clear too.
+Exact totals can change with the building plan. Preserve density floors,
+represented-road floors and near-spawn/core approach counts rather than relying
+only on one global count.
 
-Pass pole/support points into roadside scatter's occupied-point grid. Otherwise
-a generated tree, lamp or vendor can share the same coordinates even though the
-ad itself passed every road test.
-That shared scatter grid reserves roots with ordinary point spacing; it is not a
-substitute for the skyline installation OBB checks.
+## Mounting and visibility are the same decision
 
-Cairo's pole checks are intentionally support-centred; they do not prove the
-complete portrait panel clear of buildings, water or every hard keep-out. If a
-port uses wider cards, deep fixtures or tighter sidewalks, promote pole banners
-to the same full-envelope audit used for skyline boards.
+Choose actual road-facing structural OBB faces from the session building plan.
+Tokyo accepts a host only when its face is within 22 m of a surface road, points
+toward it and has a clear segment from the road projection to the facade; a
+building hidden behind another building is not a host. A corner building may
+contribute one clear face to each adjacent road, which prevents a sign-rich
+cross street from leaving the player's own approach blank. Expressways,
+elevated roads and bridge decks are excluded from this facade search.
 
-## Large roadside boards: find gaps, do not hide the face
+A flush wall plane is usually edge-on from an approaching vehicle. Tokyo uses
+three complementary treatments, subject to the host split above:
 
-The first Cairo version canted 14-18 m boards toward drivers but checked only the
-central pedestal. The long frame swept several metres sideways into roads and
-building facades. Moving every board to the sidewalk centre and almost parallel
-to the kerb fixed collisions but made the advertising nearly invisible from the
-driving camera. Neither result is acceptable.
+- projecting blade kanban are perpendicular to the facade and double-sided;
+- directories and procedural-host campaign panels are canted toward an approach and moved
+  outward by their projected half-width; and
+- fascia remain facade-parallel because they are read at storefront distance.
 
-The correct solution is conditional placement:
+The cant is a visibility proxy, not proof. A release sweep still needs the real
+chase-camera field of view, screen-space size and building occlusion. Sample
+both travel directions, the default spawn route, downtown and remote corridors.
 
-1. Keep the strongly readable approach cant as the first choice. Cairo uses 55
-   degrees; all boards in its current free-drive building plan find a safe
-   opening at that angle.
-2. Compute how far the complete canted installation projects toward the road.
-   Place its centre beyond the kerb by that projected half-extent plus clearance.
-3. Search longitudinally around the nominal station in deterministic small
-   increments. Cairo uses 5 m steps within the station's local interval.
-4. Try the preferred side and then the opposite side. Small additional outward
-   setbacks are allowed when they produce a cleaner gap.
-5. Only after exhausting nearby gaps should slightly less driver-facing
-   fallback cants be considered.
-6. Never silently skip an unresolved logical slot. Use a deterministic fallback
-   or fail loudly so a test catches the map change; deletion is not a collision
-   solution.
+## Freestanding boards need complete-envelope tests
 
-Open roadsides naturally accept the preferred angle at or near the nominal
-station. Dense street walls relocate the board into a real nearby opening. This
-preserves both visibility and believable physical placement.
+The first Cairo skyline-board implementation checked only the central pedestal.
+Canted wide faces then swept into roads and buildings. Flattening every board
+against the kerb avoided collisions but made the ads nearly invisible. The
+resolver now searches nearby gaps while retaining a driver-facing cant.
 
-## Test the whole installation, not its origin
+For a freestanding installation:
 
-Derive a horizontal oriented bounding box from the rendered geometry. Cairo's
-current skyline envelope is `(width + 0.55 m) x 1.08 m`: the depth includes the
-frame, central pedestal, crossbar and lamps projecting behind the face. If the
-renderer changes, update the planner envelope and regression test together.
+1. Derive an XZ OBB from the complete rendered frame, support and lamps.
+2. Move its centre beyond the kerb by the canted projected half-extent plus
+   clearance.
+3. Search longitudinal offsets deterministically, then opposite sides and only
+   then less favourable cants.
+4. Test the full envelope against all roads, rendered buildings, rail, water,
+   landmarks, parks, venues, service points, other signs and world edges where
+   relevant.
+5. Fail loudly when a required logical slot cannot resolve. Silent deletion is
+   not a collision strategy.
 
-The full envelope must clear:
+Use real rendered-building extents: measured asset footprints for model slots
+and structural solids for procedural buildings. Coarse authored block parcels
+contain genuine gaps and cannot substitute for individual visuals.
 
-- every drivable road segment, including the source road and junction joins;
-- every rendered building visual with visible breathing room;
-- rail, landmark, park, service-point and venue reservations;
-- other billboard envelopes and same-corridor spacing.
+Pole banners have their own contract: seat supports inside the source pavement,
+clear crossing roads and rail, face the card toward traffic, and reserve their
+roots from generated roadside scatter. A root-point test is sufficient only
+while the card remains narrow enough for the city's stated envelope.
 
-Probe the complete pedestal footprint against water, not only its centre. This
-is not a full board-to-water OBB test. A port whose candidate corridors approach
-the map edge should also add an explicit whole-envelope world-boundary check;
-Cairo's current resolver does not need or implement one.
+## Bridges and expressways are explicit structures
 
-Cairo expands roads by 0.25 m and rendered buildings by 0.5 m. These are visual
-buffers, not excuses to accept touching geometry.
+An overhead gantry may span asphalt only because its role and clearance are
+tested explicitly. Its legs land beyond carriageway/parapet envelopes and its
+face clears the tallest supported traffic. Side-mounted deck signs place their
+complete frames beyond asphalt and parapets, remain readable in both directions
+and reserve gaps around gantries and same-level merges.
 
-Do not test skyline boards against `mapPack.geometry.blocks` alone. Blocks are
-coarse authoring parcels and can contain several buildings plus genuine gaps;
-rejecting a whole block erases exactly the openings the resolver needs. Use the
-session `BuildingLayoutPlan`:
-
-- for asset-slot buildings, use `buildingPlacementConfig(modelId)` and its full
-  measured `footprintM`/`depthM` at the planned position and yaw. Ground-contact
-  structural solids can miss balconies and upper-floor projection;
-- for procedural/museum buildings, use their exact planned structural solids.
-
-Keep XZ separation even when a billboard happens to sit above a low roof. The
-requested visual is a real gap, not an object that technically clears by height
-while appearing meshed from the road.
-
-One valuable regression proves that at least one accepted board overlaps a
-coarse block parcel while clearing every individual rendered building. That
-shows the implementation is finding real between-building gaps rather than
-retreating outside all authored blocks.
-
-## Bridge and expressway structures
-
-Handle overhead gantries separately from roadside boards. A gantry is allowed to
-span a carriageway because its role is explicit and its vertical clearance is
-tested. Its legs must land beyond asphalt and any parapet, and the bottom of its
-face must clear the tallest supported traffic. Cairo uses more than 6.5 m.
-
-Give long bridges multiple approach-facing installations across their full run.
-One board at the bridge mouth does not create the reference-city rhythm and can
-still leave the driver's entire main crossing empty.
-
-Cairo currently pins gantry span, leg setback, vertical clearance, corridor
-identity and route distribution. A map with dense bridge furniture, nearby
-buildings or rail needs an additional full gantry collision audit.
-
-Side-mounted bridge campaigns are not ordinary sidewalk poles. On a deck with
-no pavement band, put the complete portrait frame outside the asphalt and
-parapet envelope, land the vertical post on the parapet edge, and connect it
-with short outward brackets. Keep both faces readable to traffic, reserve gaps
-around gantries and same-level merge ramps, and do not let elevated signs erase
-unrelated at-grade roadside scatter beneath the overpass. Cairo repeats these
-signs down both sides of the Sixth of October deck while conservatively leaving
-underpassing junctions visually open.
+Distribute bridge signs across the full route. A single board at a bridge mouth
+does not create a sustained approach rhythm. Do not let elevated installations
+remove unrelated at-grade scatter under the structure.
 
 ## Rendering and performance
 
-Build one set of master meshes and shared materials, then instance every
-placement. Cairo shares sixteen atlas materials, sixteen landscape-copy
-materials, sixteen portrait campaign materials and three frame/support/lamp
-materials across the city. Its static parts are thin-instanced by master and
-128 m cell using the exact composed placement/part matrices. That removes
-per-part scene nodes while retaining frustum culling; a single city-wide batch
-per master is too coarse. Never create a material or texture per placement.
-Each spatial mesh needs its own Babylon `Geometry` container before
-`thinInstanceSetBuffer`: the instance attributes live on geometry even though
-the CPU matrix cache lives on the mesh. Materials remain shared.
+Create shared materials and one master per creative/sign family, then instance
+placements. Never create a texture or material per placement. Tokyo merges the
+frame and separate art/copy planes into campaign masters, plus shared blade,
+fascia and directory masters; its projecting signs are explicitly double-sided.
+Only the faces emit. Frames stay dark/specular and surrounding walls remain
+ordinary building materials.
 
-Use explicit front and back faces where both travel directions should read the
-board. Keep the support compact; a central pedestal avoids end legs projecting
-into traffic when a wide face is canted. Freeze static batches/materials through
-the same scene pipeline as other city furniture. Regression tests should compare
-the role plus every world-matrix float against the legacy instance renderer and
-verify each chunk's bounds cover all transformed source geometry. They must also
-read `world0`–`world3` from each chunk's actual vertex buffers; checking only
-`thinInstanceGetWorldMatrices()` cannot catch shared-geometry GPU overwrites.
+Cairo's much larger freestanding layer thin-instances each master into spatial
+cells so frustum culling remains useful. Each chunk needs its own Babylon
+`Geometry` before `thinInstanceSetBuffer`; instance attributes live on geometry
+even when the CPU matrix cache lives on the mesh. Freeze static meshes and
+materials through the normal scenery pipeline.
 
-Adding or relocating advertisements changes roadside occupied points, which can
-re-deal ordinary generated props. A render-characterization mesh-count change is
-therefore expected, but it must be measured and explained rather than guessed.
+Changing advertising can re-deal roadside scatter when new supports become
+occupied points. Render-characterization changes must be measured rather than
+blindly accepted.
 
-## Required regression coverage
+## Regression and release gate
 
 The city-specific suite should pin:
 
-- fictional copy, forbidden-name exclusions and the intended language mix;
-- exact atlas crops with no neighbouring-cell sampling;
-- committed atlas dimensions/checksum when the asset may be replaced;
-- exact or minimum counts by placement kind and unique IDs;
-- corridor count, long-road density and whole-map regional distribution;
-- repeated creative runs rather than per-pole noise;
-- pole supports inside pavement and outside crossing roads/rail;
-- the complete skyline installation clear of roads, full rendered-building
-  visuals, reservations and water;
-- a readable approach-angle range and proof that preferred angles are actually
-  used on open stretches;
-- billboard-to-billboard separation and non-overlap;
-- proof of genuine within-parcel building-gap placement;
-- bridge span, support setback, vertical clearance and full-route distribution;
-- bridge-side frame clearance beyond asphalt/parapets, gantry separation and
-  full-route distribution;
-  and
+- copy uniqueness, forbidden-name exclusions and language mix;
+- all atlas crops, dimensions, checksums and source-cell sizes;
+- unique placement IDs, every placement kind, unique-host density and
+  represented-road floors;
+- near-spawn, core and outer-region presence, plus bounded gaps on long roads;
+- procedural-only campaigns, vertical blade-only residential-style hosts;
+- facade-to-road line of sight, readable approach-facing geometry and the
+  two-axis texture correction on every `+Z` campaign/tenant face;
+- full installation clearance where signs are freestanding or overhead; and
 - no advertising leakage into other map IDs.
 
-If a map can run with multiple traffic/building seeds, execute the skyline
-resolver against a representative seed matrix. Cairo's exact 55-degree/count
-assertion currently covers its free-drive seed; a different layout can expose a
-new unresolved slot, which deliberately throws instead of deleting the board.
+Run the registry and four-city render characterizations as well. Geometry tests
+do not prove visual readability, so drive the spawn district, downtown, remote
+arterials and both directions past the largest screens. Check that the layer is
+already present when a drive begins, small signs accumulate into a street wall,
+hero art stays legible, luminous faces bloom without lighting whole buildings,
+and no structure clips roads, roofs or facades.
 
-The angle assertion is only a geometric visibility proxy. It does not prove
-screen-space size, line of sight, occlusion or readability from the chase
-camera, so the manual driving sweep below remains a release requirement.
-
-Also run the registry test and the four-city render characterization. The latter
-protects shared materials, instancing, mirrors and unrelated cities from a local
-advertising change.
-
-## Porting checklist
-
-1. Study several driving-height references and mark the intended corridors and
-   bridge sightlines before generating art.
-2. Write the local content policy and creative table first.
-3. Produce text-free imagery, measure its atlas cells and add crop tests.
-4. Add the pure placement module and three placement kinds needed by that city.
-5. Feed it the exact session building plan and existing hard keep-outs.
-6. Run a geometry audit for all candidates before opening the renderer.
-7. Build shared materials/masters and instance the accepted placements.
-8. Reserve support points from roadside scatter.
-9. Drive the spawn district, several remote arterials, the longest bridge and
-   both directions past large boards. Check shine, text, approach readability,
-   supports, water edges and silhouettes against buildings.
-10. Run focused tests, typecheck, lint, production build and render
-    characterization. Update player-facing scope and asset credits when needed.
-
-The current Cairo output is 635 pole banners on 27 surface corridors, 69 skyline
-boards on 13 corridors, 34 parapet signs along the Sixth of October Bridge and
-10 bridge gantries, including eight across that main deck. Sixteen campaigns
-draw from two measured atlases. The focused suite pins 69 and eight exactly
-while using minimums for the broader pole, side-sign and gantry totals. These
-numbers are evidence that the method scales; they are not universal targets for
-London, New York or another map.
+The current Cairo scale—hundreds of pole banners plus dozens of skyline,
+parapet and gantry structures—is evidence that the architecture scales, not a
+universal target. Tokyo reaches comparable visual persistence through many more
+building-mounted tenant signs and a smaller campaign-screen layer. Preserve the
+city-specific silhouette, not another city's raw counts.

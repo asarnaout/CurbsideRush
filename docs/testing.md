@@ -122,7 +122,9 @@ Nine jsdom suites deliberately cross that boundary:
 `BabylonGameSession` against a `NullEngine`, copying the jsdom-gap
 workarounds documented in `gameCanvasSession.test.tsx`. The four-city suite
 pins the complete authored scene shape; the focused suites make failures
-easier to localize.
+easier to localize. Full-mount suites that include Tokyo mock the Japanese
+font readiness/ink proof exactly as the Cairo-capable suites mock the Arabic
+proof; jsdom has neither the Font Loading API nor a real raster canvas.
 
 `mirrorRigCharacterization` ticks the session because mirror render-list
 closures run only once Babylon renders. `cutsceneDirectorCharacterization` uses
@@ -142,6 +144,20 @@ mesh names or counts, sorted by name — see `docs/rendering.md`'s
 `buildScenarioEnvironment` section for why a raw `seededUnit`-output
 fingerprint would not actually catch a draw-order regression here.
 
+Tokyo advertising has two focused gates. `tokyoStreetFurniture` checks the
+fictional Japanese/bilingual copy, regular-atlas crops, every campaign/tenant
+mounting kind and unique IDs. Its density gates require at least twice the
+rejected pass's placements and advertised buildings, cap signs per unique host,
+and pin represented-road, spawn/core and opening-block coverage; the current
+plan is 4,288 placements on 1,450 buildings across 99 roads. It also enforces
+procedural-only campaigns, vertical blade-only residential-style hosts,
+road-to-facade visibility, carriageway-edge clearance, and both U/V inversions
+on every textured `+Z` campaign and tenant face, plus shared masters and map
+isolation.
+`tokyoAdvertisingAssets` separately pins all 28 normalized source-cell sizes,
+both v2 atlas dimensions/checksums and the self-hosted Japanese font bytes.
+These geometry gates do not replace an actual chase-camera drive sweep.
+
 ## DOM tests
 
 **`window.localStorage` does not exist in this project's jsdom.** A new `.tsx` test
@@ -152,13 +168,14 @@ does — plus a **synchronous `requestAnimationFrame` stub**, or `SideSwapApp`'s
 
 Tests default to `environment: "node"`. DOM needs `// @vitest-environment jsdom` on
 line 1 and a local `@testing-library/jest-dom/vitest` import — **there is no setup
-file**. Eighteen test files do this today: `buildingLayerCharacterization`,
+file**. Nineteen test files do this today: `buildingLayerCharacterization`,
 `careerFlow`, `cockpitCharacterization`, `confirmDialog`,
 `cutsceneDirectorCharacterization`, `driveHud`, `expandedMap`,
 `facadeGridDrawOrderCharacterization`, `fourCityRenderCharacterization`,
 `freeDriveFuel`, `gameCanvasSession`, `launcher`, `minimapCanvas`,
 `mirrorRigCharacterization`, `parksRenderCharacterization`,
-`touchDriveControls`, `trafficControlCharacterization`, `viewportSetup`. The
+`touchDriveControls`, `tokyoStreetFurniture`, `trafficControlCharacterization`,
+`viewportSetup`. The
 nine full-mount Babylon tests are listed above; the rest are ordinary
 component tests.
 
@@ -201,6 +218,7 @@ geometry against the pedals is a WebKit measurement at 874×402, 734×343 and
 | `cockpitCharacterization` | `buildCockpit`'s exact mesh/merge output (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `trafficControlCharacterization` | Signal/camera/railway-crossing/road-marking exact mesh output across London + Tokyo (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `parksRenderCharacterization` | Park lawn/path/wall/court/torii/lantern exact mesh output for Tokyo's temple parks (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
+| `tokyoStreetFurniture` / `tokyoAdvertisingAssets` | Tokyo's placement/unique-host density and road-coverage floors, residential/commercial host split, approach visibility, two-axis `+Z` texture orientation, runtime Japanese copy, campaign/tenant renderer families, 28 editable source cells, v2 atlas bytes and Japanese font provenance |
 | `mirrorRigCharacterization` | Rear-view/wing-mirror exact mesh output, plus non-zero render/candidate/drawn counts after ticking (first-person, headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `cutsceneDirectorCharacterization` | Pullover (patrol rig, actor visibility/position) and repair (runs to completion, emits its `done` event, clears itself) staged via a real `cutscene` prop rerender (headless, NullEngine) — the Phase 3 god-file decomposition's safety net for that extraction |
 | `fourCityRenderCharacterization` | Exact four-city mesh/material fingerprint, cockpit mirror names, and mirror render activity (headless, NullEngine) |

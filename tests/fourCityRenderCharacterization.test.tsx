@@ -65,6 +65,21 @@ vi.mock("../app/game/arabicFont", async (importOriginal) => {
   };
 });
 
+vi.mock("../app/game/japaneseFont", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../app/game/japaneseFont")>();
+  return {
+    ...mod,
+    ensureJapaneseCanvasFontLoaded: async () => {},
+    inspectJapaneseCanvasFont: () => ({
+      loaded: true,
+      family: mod.JAPANESE_CANVAS_FONT_FAMILY,
+      sampleWidth: 100,
+      inkPixels: 1,
+      source: mod.JAPANESE_CANVAS_FONT_SOURCE,
+    }),
+  };
+});
+
 import GameCanvas from "../app/game/GameCanvas";
 import {
   CAIRO_FREE_DRIVE,
@@ -1136,15 +1151,24 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // The nine new materials are exactly Tokyo's pale structural/blue-grey
     // underside concrete, cool reflector, parapet/coping/rail paints and the
     // three cool-white lamp materials; the shared 45 m batcher remains active.
-    totalMeshes: 28_066,
-    enabledMeshes: 28_041,
-    activeMeshes: 2_379,
-    materials: 307,
+    // 28_066 -> 32_422 (enabled 28_041 -> 32_397, active 2_379 -> 2_831,
+    // materials 307 -> 415): Tokyo's dense mounted-ad pass replaces the old
+    // handful of flat neon boards with 28 campaign masters, 24 blade masters,
+    // 24 fascia masters and eight directory masters, then instances 4_288
+    // road-facing signs on 1_450 buildings plus the few roof supports. The 108 new
+    // materials are 28 art, 28 copy, 24 blade, 24 fascia and eight directory
+    // faces plus the shared frame/support pair, net of the retired placeholder
+    // palette. Mirror-drawn 291 -> 316 because more road-facing panels now sit
+    // inside the fixed pose's reflection frustum.
+    totalMeshes: 32_422,
+    enabledMeshes: 32_397,
+    activeMeshes: 2_831,
+    materials: 415,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
     mirrorCandidates: 294,
-    mirrorDrawn: 291,
+    mirrorDrawn: 316,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -1269,7 +1293,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // -> "7d957807": +rail-shed-jp-setagaya-line-run-lamp (the depot shed's
     // gable lamp, minted only where a depot shed exists).
     // -> "3b41f838": the nine Tokyo-only expressway materials above.
-    survivingMaterialNamesFingerprint: "3b41f838",
+    // -> "5efdbedb": the v2 campaign art/copy set plus the runtime tenant
+    // blade, fascia and directory material families described above.
+    survivingMaterialNamesFingerprint: "5efdbedb",
   },
   "cairo-central-nile": {
     // 17_660 -> 10_736 (active 3_008 -> 1_747): the building-collision-
