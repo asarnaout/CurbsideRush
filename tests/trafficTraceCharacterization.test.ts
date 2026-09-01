@@ -226,7 +226,10 @@ describe("ambient traffic trace characterization", () => {
       // one elevated-road vehicle spawn. Host-road node insertions also
       // rename the affected segment ids, so the hashed lane assignments and
       // positions intentionally move while the other cities remain stable.
-      "free-jp": "1764a29d",
+      // -> d6d35d51 (Sakuragawa ramp clearance repair): the Chuo, Kawagishi,
+      // and east-terminal ramp profiles/nodes move while the traffic system
+      // and its fixed 32 Tokyo vehicle slots remain unchanged.
+      "free-jp": "d6d35d51",
       // Moves for the rail feature's Imbaba corridor: eleven generated
       // railway crossings put timetable-driven railway_signal lights and
       // stop lines on every N-S street at z=-720, and the corridor carve

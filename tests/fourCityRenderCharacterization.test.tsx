@@ -1160,9 +1160,12 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // faces plus the shared frame/support pair, net of the retired placeholder
     // palette. Mirror-drawn 291 -> 316 because more road-facing panels now sit
     // inside the fixed pose's reflection frustum.
-    totalMeshes: 32_422,
-    enabledMeshes: 32_397,
-    activeMeshes: 2_831,
+    // -> 32_591/32_566, 2_824 active: the Sakuragawa ramp-clearance redraw
+    // lengthens the Chuo/Kawagishi/east approaches and their structural
+    // batches while moving seven meshes outside this fixed pose's cull ring.
+    totalMeshes: 32_591,
+    enabledMeshes: 32_566,
+    activeMeshes: 2_824,
     materials: 415,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,

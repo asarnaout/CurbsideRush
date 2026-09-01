@@ -416,17 +416,18 @@ const COMMITTED_REPRESENTATIVE_ANCHORS: Readonly<
   "tokyo-setagaya": {
     sparse: {
       // Re-anchored after the Sakuragawa expressway added substantial legal
-      // lane capacity and expanded the sampled population to 1,048 positions.
+      // lane capacity. The ramp-clearance redraw expands that sampled
+      // population to 1,053 positions without changing the traffic budget.
       laneId: "jp-ys-tsubaki-dori-1-forward-1",
       distanceAlongM: 150,
       expectedFogLaneKm: 5.972_268_298,
       expectedInnerLaneKm: 2.704_603_259,
     },
     median: {
-      laneId: "jp-kawagishi-dori-7-forward-1",
+      laneId: "jp-mn-suzukake-dori-1-reverse-1",
       distanceAlongM: 150,
-      expectedFogLaneKm: 10.795_384_222,
-      expectedInnerLaneKm: 3.464_439_191,
+      expectedFogLaneKm: 10.857_753_872,
+      expectedInnerLaneKm: 2.947_634_850,
     },
     dense: {
       laneId: "jp-southrow-west-e",

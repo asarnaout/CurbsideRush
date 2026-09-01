@@ -1016,7 +1016,7 @@ const jpSakuragawaExpresswayNodes = {
   kanpachiExitLift: node("jp-sx-kanpachi-exit-lift", -800, -285),
   kanpachiExitTaper: node("jp-sx-kanpachi-exit-taper", -716, -300),
 
-  chuoExitGround: node("jp-sx-chuo-exit-ground", 440, -430),
+  chuoExitGround: node("jp-sx-chuo-exit-ground", 440, -500),
   chuoEntryGround: node("jp-sx-chuo-entry-ground", 440, -300),
   chuoEntryTaper: node("jp-sx-chuo-entry-taper", 424, -280),
   chuoEntryLift: node("jp-sx-chuo-entry-lift", 424, -250),
@@ -1031,7 +1031,10 @@ const jpSakuragawaExpresswayNodes = {
   chuoExitCurveC: node("jp-sx-chuo-exit-curve-c", 310, -290),
   chuoExitClear: node("jp-sx-chuo-exit-clear", 390, -330),
   chuoExitLift: node("jp-sx-chuo-exit-lift", 456, -370),
-  chuoExitTaper: node("jp-sx-chuo-exit-taper", 450, -405),
+  chuoExitEaseHigh: node("jp-sx-chuo-exit-ease-high", 460, -395),
+  chuoExitEaseMid: node("jp-sx-chuo-exit-ease-mid", 460, -425),
+  chuoExitEaseLow: node("jp-sx-chuo-exit-ease-low", 460, -450),
+  chuoExitTaper: node("jp-sx-chuo-exit-taper", 456, -475),
 
   riverWestShore: node("jp-sx-river-west-shore", 610, -260),
   riverEastShore: node("jp-sx-river-east-shore", 725, -260),
@@ -1040,10 +1043,10 @@ const jpSakuragawaExpresswayNodes = {
   kawagishiEntryMerge: node("jp-sx-kawagishi-entry-merge", 790, -184),
   kawagishiExitThroat: node("jp-sx-kawagishi-exit-throat", 768, -190),
   kawagishiExitCurve: node("jp-sx-kawagishi-exit-curve", 768, -150),
-  kawagishiExitClear: node("jp-sx-kawagishi-exit-clear", 758, -120),
-  kawagishiExitLift: node("jp-sx-kawagishi-exit-lift", 754, -92),
-  kawagishiExitTaper: node("jp-sx-kawagishi-exit-taper", 758, -72),
-  kawagishiExitGround: node("jp-sx-kawagishi-exit-ground", 767.907, -60),
+  kawagishiExitClear: node("jp-sx-kawagishi-exit-clear", 758, -95),
+  kawagishiExitLift: node("jp-sx-kawagishi-exit-lift", 754, -35),
+  kawagishiExitTaper: node("jp-sx-kawagishi-exit-taper", 758, 5),
+  kawagishiExitGround: node("jp-sx-kawagishi-exit-ground", 767.907, 25),
   kawagishiEntryGround: node("jp-sx-kawagishi-entry-ground", 767.3, -35),
   kawagishiEntryTaper: node("jp-sx-kawagishi-entry-taper", 785, -70),
   kawagishiEntryLift: node("jp-sx-kawagishi-entry-lift", 805, -90),
@@ -1053,16 +1056,16 @@ const jpSakuragawaExpresswayNodes = {
   eastReturn: node("jp-sx-east-return", 860, -168),
   eastCrest: node("jp-sx-east-crest", 930, -168),
 
-  eastDeckEdge: node("jp-sx-east-deck-edge", 970, -168),
-  eastBraid: node("jp-sx-east-braid", 1040, -168),
-  eastEntryClear: node("jp-sx-east-entry-clear", 1070, -172),
-  eastEntryMid: node("jp-sx-east-entry-mid", 1090, -185),
-  eastEntryLift: node("jp-sx-east-entry-lift", 1110, -184),
+  eastDeckEdge: node("jp-sx-east-deck-edge", 950, -168),
+  eastBraid: node("jp-sx-east-braid", 970, -168),
+  eastEntryClear: node("jp-sx-east-entry-clear", 1010, -190),
+  eastEntryMid: node("jp-sx-east-entry-mid", 1050, -208),
+  eastEntryLift: node("jp-sx-east-entry-lift", 1090, -192),
   eastEntryTaper: node("jp-sx-east-entry-taper", 1125, -177),
   eastEntryGround: node("jp-sx-east-entry-ground", 1140, -168),
-  eastExitClear: node("jp-sx-east-exit-clear", 1075, -168),
-  eastExitMid: node("jp-sx-east-exit-mid", 1105, -150),
-  eastExitLift: node("jp-sx-east-exit-lift", 1130, -150),
+  eastExitClear: node("jp-sx-east-exit-clear", 1010, -145),
+  eastExitMid: node("jp-sx-east-exit-mid", 1050, -128),
+  eastExitLift: node("jp-sx-east-exit-lift", 1100, -140),
   eastExitTaper: node("jp-sx-east-exit-taper", 1150, -155),
   eastExitGround: node("jp-sx-east-exit-ground", 1180, -168),
 };
@@ -1549,7 +1552,7 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-kanpachi-entry-taper", "jp-sx-kanpachi-entry-lift", "jp-sx-kanpachi-entry-clear", "jp-sx-kanpachi-entry-bend", "jp-sx-kanpachi-entry-throat", "jp-sx-kanpachi-entry-merge"],
     1,
     5.8,
-    [0, 1.5, 4.6, 7.5, 9.8, 10.5],
+    [0, 1.5, 4.6, 7.5, 10.5, 10.5],
     { oneWay: "forward", handleRatio: 0.46 },
   ),
   sakuragawaSlipRoad(
@@ -1563,7 +1566,7 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-kanpachi-exit-merge", "jp-sx-kanpachi-exit-throat", "jp-sx-kanpachi-exit-bend", "jp-sx-kanpachi-exit-clear", "jp-sx-kanpachi-exit-lift", "jp-sx-kanpachi-exit-taper"],
     1,
     5.8,
-    [10.5, 10.5, 10, 6.2, 1.7, 0],
+    [10.5, 10.5, 10.5, 6.2, 6.2, 0],
     { oneWay: "forward", handleRatio: 0.29 },
   ),
   sakuragawaSlipRoad(
@@ -1578,7 +1581,7 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-chuo-entry-taper", "jp-sx-chuo-entry-lift", "jp-sx-chuo-entry-clear", "jp-sx-chuo-entry-bend", "jp-sx-chuo-entry-throat", "jp-sx-chuo-entry-merge"],
     1,
     5.8,
-    [0, 2.2, 4.8, 7.5, 9.8, 10.5],
+    [0, 3.1, 6.8, 10.5, 10.5, 10.5],
     { oneWay: "forward", handleRatio: 0.46 },
   ),
   sakuragawaSlipRoad(
@@ -1589,10 +1592,10 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
   sakuragawaElevatedRoad(
     "chuo-exit-ramp",
     "Sakuragawa Expressway Chuo Exit",
-    ["jp-sx-chuo-exit-merge", "jp-sx-chuo-exit-throat", "jp-sx-chuo-exit-curve-a", "jp-sx-chuo-exit-curve-b", "jp-sx-chuo-exit-curve-c", "jp-sx-chuo-exit-clear", "jp-sx-chuo-exit-lift", "jp-sx-chuo-exit-taper"],
+    ["jp-sx-chuo-exit-merge", "jp-sx-chuo-exit-throat", "jp-sx-chuo-exit-curve-a", "jp-sx-chuo-exit-curve-b", "jp-sx-chuo-exit-curve-c", "jp-sx-chuo-exit-clear", "jp-sx-chuo-exit-lift", "jp-sx-chuo-exit-ease-high", "jp-sx-chuo-exit-ease-mid", "jp-sx-chuo-exit-ease-low", "jp-sx-chuo-exit-taper"],
     1,
     5.8,
-    [10.5, 10.5, 9.7, 7, 5, 3, 1.5, 0],
+    [10.5, 10.5, 10.5, 7, 6.2, 6.2, 6.2, 5.9, 4, 1.6, 0],
     { oneWay: "forward", handleRatio: 0.46 },
   ),
   sakuragawaSlipRoad(
@@ -1607,7 +1610,7 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-kawagishi-entry-taper", "jp-sx-kawagishi-entry-lift", "jp-sx-kawagishi-entry-clear", "jp-sx-kawagishi-entry-bend", "jp-sx-kawagishi-entry-throat", "jp-sx-kawagishi-entry-merge"],
     1,
     5.8,
-    [0, 1.8, 4.5, 7, 9.8, 10.5],
+    [0, 2.95, 6.65, 10.5, 10.5, 10.5],
     { oneWay: "forward", handleRatio: 0.46 },
   ),
   sakuragawaSlipRoad(
@@ -1621,7 +1624,7 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-kawagishi-exit-merge", "jp-sx-kawagishi-exit-throat", "jp-sx-kawagishi-exit-curve", "jp-sx-kawagishi-exit-clear", "jp-sx-kawagishi-exit-lift", "jp-sx-kawagishi-exit-taper"],
     1,
     5.8,
-    [10.5, 8.6, 6.1, 3.3, 1, 0],
+    [10.5, 10.5, 10.5, 6, 2.5, 0],
     { oneWay: "forward", handleRatio: 0.46 },
   ),
   sakuragawaSlipRoad(
@@ -1636,7 +1639,7 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-east-crest", "jp-sx-east-deck-edge", "jp-sx-east-braid"],
     2,
     7.5,
-    [10.5, 10.5, 7.5],
+    [10.5, 10.5, 10.5],
     { tangentByNodeId: { "jp-sx-east-crest": { x: 1, z: 0 } } },
   ),
   sakuragawaElevatedRoad(
@@ -1645,8 +1648,15 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-east-entry-taper", "jp-sx-east-entry-lift", "jp-sx-east-entry-mid", "jp-sx-east-entry-clear", "jp-sx-east-braid"],
     1,
     5.8,
-    [0, 1.3, 3.25, 5.2, 7.5],
-    { oneWay: "forward", handleRatio: 0.46 },
+    [0, 3, 6, 10.5, 10.5],
+    {
+      oneWay: "forward",
+      handleRatio: 0.46,
+      tangentByNodeId: {
+        "jp-sx-east-entry-taper": { x: -15, z: -9 },
+        "jp-sx-east-braid": { x: -1, z: 0 },
+      },
+    },
   ),
   sakuragawaSlipRoad(
     "east-entry-slip",
@@ -1659,8 +1669,12 @@ const TOKYO_SAKURAGAWA_EXPRESSWAY_SPECS: readonly TokyoRoadSpec[] = [
     ["jp-sx-east-braid", "jp-sx-east-exit-clear", "jp-sx-east-exit-mid", "jp-sx-east-exit-lift", "jp-sx-east-exit-taper"],
     1,
     5.8,
-    [7.5, 5.3, 3.45, 1.6, 0],
-    { oneWay: "forward", handleRatio: 0.46 },
+    [10.5, 10.5, 7, 3.5, 0],
+    {
+      oneWay: "forward",
+      handleRatio: 0.46,
+      tangentByNodeId: { "jp-sx-east-braid": { x: 1, z: 0 } },
+    },
   ),
   sakuragawaSlipRoad(
     "east-exit-slip",
@@ -1676,7 +1690,7 @@ const TOKYO_EAST_SPECS: readonly TokyoRoadSpec[] = [
   // East-bank riverside collector, mirroring jp-kawate-dori's role on the
   // west bank: solver-checked clear of the shore by 30-55 m at every node
   // (never under the plan's 6 m floor).
-  tokyoRoad("jp-kawagishi-dori", "Kawagishi-dōri", ["jp-kawagishi-x-minami", "jp-kawagishi-x-fuji", "jp-kawagishi-x-setagaya", "jp-sx-kawagishi-exit-ground", "jp-sx-kawagishi-entry-ground", "jp-kawagishi-w1", "jp-kawagishi-x-kawanaka", "jp-kawagishi-w2", "jp-kawagishi-x-koshu", "jp-kawagishi-x-kita"], 2, 8, 40),
+  tokyoRoad("jp-kawagishi-dori", "Kawagishi-dōri", ["jp-kawagishi-x-minami", "jp-kawagishi-x-fuji", "jp-kawagishi-x-setagaya", "jp-sx-kawagishi-entry-ground", "jp-sx-kawagishi-exit-ground", "jp-kawagishi-w1", "jp-kawagishi-x-kawanaka", "jp-kawagishi-w2", "jp-kawagishi-x-koshu", "jp-kawagishi-x-kita"], 2, 8, 40),
   tokyoRoad("jp-higashi-dori", "Higashi-dōri", ["jp-higashi-w", "jp-hd-x-tofu", "jp-hd-x-hondori", "jp-sx-east-entry-ground", "jp-sx-east-exit-ground", "jp-hd-x-soto"], 2, 10, 50),
   tokyoRoad("jp-koshu-kaido-higashi", "Kōshū-kaidō", ["jp-khh-w", "jp-khh-x-keyaki", "jp-khh-x-hondori", "jp-khh-x-soto"], 2, 12, 50),
   tokyoRoad("jp-higashi-hondori", "Higashi Hon-dōri", ["jp-hh-s", "jp-hh-x-fuji", "jp-hd-x-hondori", "jp-kawanaka-e", "jp-khh-x-hondori", "jp-hh-n"], 2, 8, 40),

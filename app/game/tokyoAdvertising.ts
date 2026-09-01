@@ -806,6 +806,7 @@ export function tokyoAdvertisingPlan(
   const tenantSigns: TokyoTenantPlacement[] = [];
   let portraitCursor = 0;
   let landscapeCursor = 0;
+  let openingCampaignPlaced = false;
   for (const [hostIndex, candidate] of hosts.entries()) {
     const distribution = densityFor(candidate);
     const tenantSeed = stableIndex(candidate.buildingId, TOKYO_TENANT_CREATIVES.length);
@@ -866,13 +867,36 @@ export function tokyoAdvertisingPlan(
       if (directory) tenantSigns.push(directory);
     }
 
-    const campaignCadence = distribution === "core" ? 2 : distribution === "corridor" ? 3 : 4;
-    if (!candidate.campaignEligible || hostIndex % campaignCadence !== 0) continue;
+    // Corridor carving elsewhere in Tokyo may change the global host ordinal.
+    // Keep the first free-drive block's hero poster independent of that draw
+    // order so a distant map edit cannot silently empty the opening view.
+    const wantsOpeningCampaign =
+      !openingCampaignPlaced &&
+      candidate.roadId === "jp-south-road" &&
+      candidate.roadStationM >= 16 &&
+      candidate.roadStationM <= 98 &&
+      candidate.campaignEligible &&
+      candidate.faceWidthM >= 3.2 &&
+      candidate.buildingHeightM >= 7.5;
+    const campaignCadence =
+      distribution === "core" ? 2 : distribution === "corridor" ? 3 : 4;
+    if (
+      !candidate.campaignEligible ||
+      (!wantsOpeningCampaign && hostIndex % campaignCadence !== 0)
+    ) {
+      continue;
+    }
     const landscapeReady =
       candidate.faceWidthM >= 10 && candidate.buildingHeightM >= 10;
     const wantsRooftop =
-      landscapeReady && candidate.buildingHeightM >= 15 && hostIndex % 17 === 0;
-    const wantsScreen = landscapeReady && hostIndex % (distribution === "core" ? 7 : 12) === 0;
+      !wantsOpeningCampaign &&
+      landscapeReady &&
+      candidate.buildingHeightM >= 15 &&
+      hostIndex % 17 === 0;
+    const wantsScreen =
+      !wantsOpeningCampaign &&
+      landscapeReady &&
+      hostIndex % (distribution === "core" ? 7 : 12) === 0;
     if (wantsRooftop || wantsScreen) {
       campaigns.push(
         campaignPlacementFor(
@@ -893,6 +917,7 @@ export function tokyoAdvertisingPlan(
         ),
       );
       portraitCursor += 1;
+      if (wantsOpeningCampaign) openingCampaignPlaced = true;
     }
   }
   const plan = { campaigns, tenantSigns } as const;

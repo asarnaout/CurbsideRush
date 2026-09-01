@@ -428,6 +428,20 @@ describe("elevated-road vehicle headroom", () => {
   });
   const cairoSurfaces = cairoMapPack.geometry.roadSurfaces ?? [];
   const cairoRoadNetwork = new RoadNetwork(cairoConfig.lanes ?? [], [], []);
+  const tokyoFreeDrive = FREE_DRIVES.find(
+    (freeDrive) => freeDrive.mapId === "tokyo-setagaya",
+  );
+  if (!tokyoFreeDrive) throw new Error("Tokyo free drive is missing");
+  const tokyoCountry = getCountryProfile(tokyoFreeDrive.countryId);
+  const tokyoMapPack = getMapPack(tokyoFreeDrive.mapId);
+  const tokyoConfig = buildSimulationCoreConfig({
+    scenario: buildFreeDriveScenario(tokyoFreeDrive),
+    mapPack: tokyoMapPack,
+    trafficSide: tokyoCountry.trafficSide,
+    speedUnit: tokyoCountry.speedUnit,
+  });
+  const tokyoSurfaces = tokyoMapPack.geometry.roadSurfaces ?? [];
+  const tokyoRoadNetwork = new RoadNetwork(tokyoConfig.lanes ?? [], [], []);
   const deliveryVan = getCareerVehicle("delivery-van");
   const deliveryVanClearanceHeightM = VEHICLE_DIMENSIONS["delivery-van"].height;
   const deliveryVanRequiredHeadroomM = deliveryVanClearanceHeightM + 0.08;
@@ -560,6 +574,179 @@ describe("elevated-road vehicle headroom", () => {
       ).toEqual([]);
     },
   );
+
+  it(
+    "sweeps every career vehicle's full paved envelope through every Tokyo Sakuragawa access profile",
+    { timeout: 150_000 },
+    () => {
+      const accessSurfaces = tokyoSurfaces.filter(
+        (surface) =>
+          surface.id.includes("sakuragawa-urban-expressway") &&
+          Math.max(
+            ...surface.centerline.map((point) => point.elevationM ?? 0),
+          ) > 0 &&
+          !surface.id.endsWith("-mainline"),
+      );
+      const surfaceSampler = new RoadNetwork(
+        accessSurfaces.map((surface) => ({
+          id: `sweep-${surface.id}`,
+          roadId: surface.id,
+          points: surface.centerline,
+          width: surface.widthM,
+          loop: false,
+        })),
+        [],
+        [],
+      );
+      const surfacesById = new Map(
+        accessSurfaces.map((surface) => [surface.id, surface]),
+      );
+      const failures: string[] = [];
+      let samples = 0;
+
+      for (const vehicle of CAREER_VEHICLES) {
+        const playerClearanceHeightM = (() => {
+          if (vehicle.visualKind === "bicycle") return 1.85;
+          if (vehicle.visualKind === "motorbike") return 1.8;
+          if (vehicle.model) return VEHICLE_DIMENSIONS[vehicle.model].height;
+          throw new Error(
+            `Missing rendered clearance height for ${vehicle.id}`,
+          );
+        })();
+        const simulation = new SimulationCore({
+          ...tokyoConfig,
+          ...vehicle.physics,
+          playerClearanceHeightM,
+          npcCount: 0,
+        });
+
+        for (const samplingLane of surfaceSampler.lanes) {
+          const surface = samplingLane.roadId
+            ? surfacesById.get(samplingLane.roadId)
+            : undefined;
+          if (!surface) {
+            throw new Error(`Missing sampled surface for ${samplingLane.id}`);
+          }
+          const maximumLateralOffsetM = Math.max(
+            0,
+            surface.widthM / 2 - vehicle.physics.playerCapsuleRadiusM,
+          );
+          const lateralOffsetsM =
+            maximumLateralOffsetM > 0.01
+              ? [-maximumLateralOffsetM, 0, maximumLateralOffsetM]
+              : [0];
+
+          for (
+            let distanceM = 0;
+            distanceM + 0.3 < samplingLane.length;
+            distanceM += 0.75
+          ) {
+            const centre = surfaceSampler.pointOnLane(samplingLane, distanceM);
+            const ahead = surfaceSampler.pointOnLane(
+              samplingLane,
+              distanceM + 0.3,
+            );
+            const authoredHeading = Math.atan2(
+              ahead.x - centre.x,
+              ahead.z - centre.z,
+            );
+
+            for (const lateralOffsetM of lateralOffsetsM) {
+              const x = centre.x + Math.cos(authoredHeading) * lateralOffsetM;
+              const z = centre.z - Math.sin(authoredHeading) * lateralOffsetM;
+              for (const reversePhysicalHeading of [false, true] as const) {
+                const heading =
+                  authoredHeading + (reversePhysicalHeading ? Math.PI : 0);
+                simulation.setPlayerPose(
+                  {
+                    x,
+                    z,
+                    elevationM: centre.elevationM ?? 0,
+                    heading,
+                  },
+                  Math.min(15, vehicle.physics.maxForwardSpeedMps),
+                );
+                simulation.drainEvents();
+                const snapshot = simulation.step(1 / 60);
+                samples += 1;
+                const collision = simulation
+                  .drainEvents()
+                  .find((event) => event.code === "collision");
+                if (!collision) continue;
+
+                failures.push(
+                  `${vehicle.id} on ${surface.id} (${snapshot.road.laneId ?? "no projected lane"}) at ${distanceM.toFixed(2)}m, lateral ${lateralOffsetM.toFixed(2)}m, ${
+                    reversePhysicalHeading ? "reverse" : "forward"
+                  } heading: ${String(
+                    collision.evidence.obstacle ?? "unknown obstacle",
+                  )}/${String(
+                    collision.evidence.obstacleId ?? "unknown id",
+                  )} (${collision.correction})`,
+                );
+              }
+            }
+          }
+        }
+      }
+
+      expect(accessSurfaces).toHaveLength(12);
+      expect(samples).toBeGreaterThan(45_000);
+      expect(
+        failures.slice(0, 25),
+        `${failures.length} production collider contacts across the Sakuragawa paved envelope:\n${failures
+          .slice(0, 25)
+          .join("\n")}`,
+      ).toEqual([]);
+    },
+  );
+
+  it("keeps every ordinary Tokyo lane open beneath the complete Sakuragawa structures", () => {
+    const clearanceAt = createElevatedRoadGroundClearanceQuery(tokyoSurfaces);
+    const failures: string[] = [];
+    let samples = 0;
+
+    for (const lane of tokyoRoadNetwork.lanes) {
+      if (!lane.roadId || lane.roadId.includes("sakuragawa-urban-expressway")) {
+        continue;
+      }
+      for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.5) {
+        const point = tokyoRoadNetwork.pointOnLane(lane, distanceM);
+        for (const alongM of [
+          -deliveryVan.physics.playerCapsuleHalfLengthM,
+          0,
+          deliveryVan.physics.playerCapsuleHalfLengthM,
+        ]) {
+          const roofSample = {
+            x: point.x + Math.sin(point.heading) * alongM,
+            z: point.z + Math.cos(point.heading) * alongM,
+          };
+          const obstruction = clearanceAt(
+            roofSample,
+            point.elevationM ?? 0,
+            deliveryVan.physics.playerCapsuleRadiusM,
+            false,
+            new Set([lane.roadId]),
+            ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+          );
+          samples += 1;
+          if (
+            obstruction &&
+            obstruction.clearanceM < deliveryVanRequiredHeadroomM
+          ) {
+            failures.push(
+              `${lane.id} at ${distanceM.toFixed(1)}m: ${obstruction.surfaceId} leaves ${obstruction.clearanceM.toFixed(3)}m`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(samples).toBeGreaterThan(100_000);
+    expect(
+      failures.slice(0, 25),
+      `Every ordinary-road roof disc needs ${deliveryVanRequiredHeadroomM.toFixed(2)}m beneath the Sakuragawa network`,
+    ).toEqual([]);
+  });
 
   it("keeps both Al Saraya host lanes clear beneath the complete Gezira entry slab", () => {
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);

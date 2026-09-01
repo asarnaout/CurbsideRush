@@ -571,7 +571,7 @@ const TOKYO_EXPRESSWAY_APPROACH_ENDPOINT_RENAMES = [
   ],
   [
     "jp-gen-signal-jp-kawagishi-x-setagaya-jp-gen-signal-jp-kawagishi-x-setagaya-jp-kawagishi-dori-kawagishi-w1",
-    "jp-gen-signal-jp-kawagishi-x-setagaya-jp-gen-signal-jp-kawagishi-x-setagaya-jp-kawagishi-dori-sx-kawagishi-exit-ground",
+    "jp-gen-signal-jp-kawagishi-x-setagaya-jp-gen-signal-jp-kawagishi-x-setagaya-jp-kawagishi-dori-sx-kawagishi-entry-ground",
   ],
   [
     "jp-kanpachi-dori-kanpachi-x-hiiragi",

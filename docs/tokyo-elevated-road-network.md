@@ -18,7 +18,7 @@ and tests remain the executable specification.
 - ten one-way, ground-level paved slips that connect those ramps to the host
   road merge nodes.
 
-Together they provide roughly 4.3 km of authored road surface. The trunk runs
+Together they provide roughly 4.5 km of authored road surface. The trunk runs
 west to east across both halves of Tokyo and crosses the Sakuragawa high above
 the water. It is a useful network through the city, not a decorative bridge or
 an edge-of-map bypass.
@@ -62,6 +62,14 @@ street before any vehicle-only grade begins. This keeps the road graph,
 sidewalks, junction fill and physical mouth in agreement. Structural deck and
 barrier geometry must not start in the pedestrian crossing zone or leave a
 seam between ground and ramp.
+
+At a mainline or carrier mouth, keep the branch at the receiving deck's full
+elevation until its complete paved and vehicle envelope has cleared the parent.
+The terminal entry and exit grades must remain separated while low and may
+braid only at full deck height. The Chuo exit and Kanpachi exit also cross live
+streets away from their host mouths; their 6.2 m crossing plateaus must clear
+those streets before a multi-knot eased descent begins. Moving only the lane or
+only the visible mesh reintroduces a low soffit or an overlapping-deck collider.
 
 The profiled ramp centreline is the canonical sampled curve. Sample it once in
 `openTokyoRoadGeometryForSpec`, store it in `tokyoRoadGeometryById`, and derive
@@ -120,13 +128,15 @@ post or one citywide merged collider.
 
 The Tokyo network tests should continue to prove all of these together:
 
-- 23 surfaces, about 1.9 km of four-lane trunk and about 4.3 km total;
+- 23 surfaces, about 1.9 km of four-lane trunk and about 4.5 km total;
 - all five sites and ten legal one-way movements, with intermediate branches
   restricted to the left-driving outer lane;
 - the canonical curve, radius, grade and handoff limits;
 - a high river crossing without changing the three surface water portals;
 - flat paved mouths, continuous grounded barrier envelopes and no hidden-only
   containment;
+- every career vehicle across the full paved width of every access profile,
+  plus the full delivery-van roof envelope beneath every ordinary Tokyo lane;
 - corridor carving without wholesale block loss, and no controls or authored
   props intruding into road or barrier clearance; and
 - exact 45 m-cell equivalence for static/mirror batches and exact-coordinate

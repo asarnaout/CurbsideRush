@@ -559,7 +559,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, DrawOrderBaseline>> = {
     drawCount: 3_273,
     // "4689c992" -> "2a378f07": facade-chunk merging (see Cairo's note).
     // -> "b5e262bf": the expressway corridor carve above.
-    facadeMeshFingerprint: "b5e262bf",
+    // -> "42b333b2": the Sakuragawa ramp-clearance redraw changes which
+    // unchanged facade chunks survive the corrected structural keep-outs.
+    facadeMeshFingerprint: "42b333b2",
   },
   "cairo-central-nile": {
     // 15_517 -> 4_288 (fingerprint "22b5588d" -> "b6f29f68"): the
