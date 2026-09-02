@@ -17,6 +17,14 @@ caller-owned objects, allocating nothing. Its only import is `seededUnit` from
 Deliberately not per-session, because `GameCanvas` remounts on destination and
 steering change.
 
+The capture-phase unlock listeners stay installed for the singleton's lifetime
+and retry every non-running state while a drive wants playback. Do not remove
+them after the first successful resume: `suspend()` is asynchronous, so a quick
+exit/re-entry can let the old suspension land after the next start gesture, and
+WebKit can later move the context through its `interrupted` state.
+The pending suspend completion and the next pointer/key input are both recovery
+paths.
+
 ## `primeAudioContext()` + `music.start()` must run synchronously inside the click handler
 
 Safari only honours resume/play in the same task as the gesture. **Moving either

@@ -97,7 +97,8 @@ export class DriveAudio {
       const context = primeAudioContext();
       if (!context) return null;
       return new DriveAudio(context, volumes, lowPower, engineless, profile);
-    } catch {
+    } catch (error) {
+      console.warn("[DriveAudio] Web Audio initialization failed", error);
       return null;
     }
   }

@@ -9,11 +9,13 @@
  * that makes clicks impossible, using a fake context that records every call.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DriveAudio } from "../app/game/audio/DriveAudio";
 import { createAudioParams, createAudioState, updateAudioModel } from "../app/game/audio/audioMath";
 import { MasterBus } from "../app/game/audio/masterBus";
 import { AmbienceVoice } from "../app/game/audio/voices/ambienceVoice";
 import { EngineVoice } from "../app/game/audio/voices/engineVoice";
 import { HornVoice } from "../app/game/audio/voices/hornVoice";
+import { ImpactVoice } from "../app/game/audio/voices/impactVoice";
 import { IndicatorVoice } from "../app/game/audio/voices/indicatorVoice";
 import { TyreVoice } from "../app/game/audio/voices/tyreVoice";
 import type { VoiceContext } from "../app/game/audio/voices/voiceContext";
@@ -112,6 +114,14 @@ class FakeContext {
   get currentTime() {
     return clock;
   }
+  resume() {
+    this.state = "running";
+    return Promise.resolve();
+  }
+  suspend() {
+    this.state = "suspended";
+    return Promise.resolve();
+  }
   createGain() {
     const node = new FakeNode("gain") as FakeNode & { gain: FakeParam };
     node.gain = new FakeParam("gain.gain", 1);
@@ -191,6 +201,9 @@ beforeEach(() => {
   (globalThis as unknown as { window: unknown }).window = {
     setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
     clearTimeout: (id: number) => clearTimeout(id),
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    AudioContext: FakeContext,
   };
 });
 
@@ -283,6 +296,71 @@ describe("horn envelope", () => {
     horn.press();
     expect(scheduled.length).toBe(before);
     expect(horn.isHeld).toBe(true);
+  });
+});
+
+describe("complete drive-audio graph", () => {
+  it("keeps engine, brake, horn and collision effects live behind the shared bus", () => {
+    const audio = DriveAudio.create({ master: 0.8, effects: 0.8 });
+    expect(audio).not.toBeNull();
+    if (!audio) return;
+
+    recording = true;
+    for (let frame = 0; frame < 90; frame += 1) {
+      clock += 1 / 60;
+      audio.update({
+        dtSeconds: 1 / 60,
+        speedMps: 24,
+        signedSpeedMps: 24,
+        gear: "D",
+        throttle: frame < 60 ? 0.9 : 0,
+        brake: frame >= 60 ? 1 : 0,
+        steer: 0,
+        offRoad: false,
+        outOfFuel: false,
+        firstPerson: false,
+      });
+    }
+    const driving = audio.debugSnapshot();
+    expect(driving.engineGain).toBeGreaterThan(0);
+    expect(driving.roadGain).toBeGreaterThan(0);
+    expect(driving.squealGain).toBeGreaterThan(0);
+
+    const beforeHorn = scheduled.length;
+    audio.hornPress();
+    expect(audio.hornHeld).toBe(true);
+    expect(scheduled.length).toBeGreaterThan(beforeHorn);
+    audio.hornRelease();
+    expect(directWrites).toEqual([]);
+
+    const beforeImpactSources = starts.length;
+    audio.impact(12, 1_000);
+    expect(starts.length).toBeGreaterThan(beforeImpactSources);
+  });
+});
+
+describe("impact envelope", () => {
+  it("starts an audible body and crunch while rate-limiting collision bursts", () => {
+    const impact = new ImpactVoice(makeVoiceContext(context));
+    recording = true;
+    impact.trigger(12, 1_000);
+
+    expect(starts).toEqual(["oscillator", "buffer"]);
+    expect(
+      scheduled.some(
+        (event) =>
+          event.method === "linearRampToValueAtTime" && event.value > 0,
+      ),
+    ).toBe(true);
+
+    const firstScheduledCount = scheduled.length;
+    impact.trigger(18, 1_080);
+    expect(starts).toHaveLength(2);
+    expect(scheduled).toHaveLength(firstScheduledCount);
+
+    impact.trigger(18, 1_121);
+    expect(starts).toHaveLength(4);
+    expect(scheduled.length).toBeGreaterThan(firstScheduledCount);
   });
 });
 

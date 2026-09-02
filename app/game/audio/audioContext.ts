@@ -14,6 +14,7 @@ type AudioContextConstructor = new () => AudioContext;
 let shared: AudioContext | null = null;
 let unlockInstalled = false;
 let unavailable = false;
+let playbackWanted = false;
 
 const resolveConstructor = (): AudioContextConstructor | null => {
   if (typeof window === "undefined") return null;
@@ -22,20 +23,34 @@ const resolveConstructor = (): AudioContextConstructor | null => {
 };
 
 /**
- * Belt and braces: if the context is still suspended — the gesture was consumed
- * elsewhere, or `resume()` was rejected — the next real input unlocks it. Bound
- * in the capture phase so nothing can stop propagation before it runs, and it
- * removes itself as soon as the context is running.
+ * Requests playback without leaking a rejected resume promise into the page.
+ * Calling `resume()` while the context still reports `running` is intentional:
+ * an earlier asynchronous `suspend()` may already be queued and must not win
+ * after a new drive-start gesture.
+ */
+function requestResume(context: AudioContext): void {
+  if (!playbackWanted || context.state === "closed") return;
+  try {
+    void context.resume().catch(() => {
+      // The permanent input fallback below retries on the next real gesture.
+    });
+  } catch {
+    // Some older implementations throw synchronously instead of rejecting.
+  }
+}
+
+/**
+ * Belt and braces: a late `suspend()`, rejected resume or WebKit `interrupted`
+ * state is retried by the next real input. Keep this listener for the lifetime
+ * of the singleton. Removing it after the first successful unlock made every
+ * later drive vulnerable to an unrecoverable silent context.
  */
 function installUnlockFallback(context: AudioContext): void {
   if (unlockInstalled || typeof window === "undefined") return;
   unlockInstalled = true;
   const events = ["pointerdown", "keydown", "touchend"] as const;
   const unlock = () => {
-    if (context.state === "suspended") void context.resume();
-    if (context.state !== "suspended") {
-      for (const type of events) window.removeEventListener(type, unlock, true);
-    }
+    if (context.state !== "running") requestResume(context);
   };
   for (const type of events) window.addEventListener(type, unlock, true);
 }
@@ -50,6 +65,7 @@ function installUnlockFallback(context: AudioContext): void {
  */
 export function primeAudioContext(): AudioContext | null {
   if (unavailable) return null;
+  playbackWanted = true;
   try {
     if (!shared) {
       const Ctor = resolveConstructor();
@@ -59,8 +75,8 @@ export function primeAudioContext(): AudioContext | null {
       }
       shared = new Ctor();
     }
-    if (shared.state === "suspended") void shared.resume();
     installUnlockFallback(shared);
+    requestResume(shared);
     return shared;
   } catch {
     // Audio stays a progressive enhancement: the game is fully playable silent.
@@ -79,5 +95,23 @@ export function peekAudioContext(): AudioContext | null {
  * context can never be reopened, and the player will start another drive.
  */
 export function suspendAudioContext(): void {
-  if (shared && shared.state === "running") void shared.suspend();
+  playbackWanted = false;
+  const context = shared;
+  if (!context || context.state === "closed") return;
+  try {
+    void context
+      .suspend()
+      .then(() => {
+        // `suspend()` is asynchronous. If another drive was started while it
+        // was in flight, restore that newer intent instead of letting the old
+        // exit operation silence the new session.
+        if (playbackWanted) requestResume(context);
+      })
+      .catch(() => {
+        // Parking audio is best-effort; playback recovery still happens on the
+        // next drive-start/input gesture.
+      });
+  } catch {
+    // Older Web Audio implementations may throw synchronously here too.
+  }
 }
