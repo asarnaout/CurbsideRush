@@ -18,6 +18,49 @@ import {
 import { ELEVATED_ROAD_STRUCTURE_THRESHOLD_M } from "../app/game/simulation/roadLevels";
 import { buildSimulationCoreConfig } from "../app/game/simulationAdapter";
 import { VEHICLE_DIMENSIONS } from "../app/game/vehicleVisuals";
+import { NYC_QUEENSVIEW_NETWORK_PREFIX } from "../app/game/cities/nycElevatedRoadNetwork";
+
+const projectedProfileElevation = (
+  centerline: readonly {
+    readonly x: number;
+    readonly z: number;
+    readonly elevationM?: number;
+  }[],
+  target: { readonly x: number; readonly z: number },
+): { readonly elevationM: number; readonly distanceM: number } => {
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+  let bestElevationM = 0;
+  for (let index = 0; index + 1 < centerline.length; index += 1) {
+    const start = centerline[index];
+    const end = centerline[index + 1];
+    const dx = end.x - start.x;
+    const dz = end.z - start.z;
+    const lengthSquared = dx * dx + dz * dz;
+    const amount = lengthSquared > 0
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            ((target.x - start.x) * dx + (target.z - start.z) * dz) /
+              lengthSquared,
+          ),
+        )
+      : 0;
+    const projectedX = start.x + dx * amount;
+    const projectedZ = start.z + dz * amount;
+    const distanceSquared =
+      (projectedX - target.x) ** 2 + (projectedZ - target.z) ** 2;
+    if (distanceSquared >= bestDistanceSquared) continue;
+    bestDistanceSquared = distanceSquared;
+    bestElevationM =
+      (start.elevationM ?? 0) +
+      ((end.elevationM ?? 0) - (start.elevationM ?? 0)) * amount;
+  }
+  return {
+    elevationM: bestElevationM,
+    distanceM: Math.sqrt(bestDistanceSquared),
+  };
+};
 
 const crossingFixture = (
   deckElevationM: number,
@@ -442,6 +485,23 @@ describe("elevated-road vehicle headroom", () => {
   });
   const tokyoSurfaces = tokyoMapPack.geometry.roadSurfaces ?? [];
   const tokyoRoadNetwork = new RoadNetwork(tokyoConfig.lanes ?? [], [], []);
+  const nycFreeDrive = FREE_DRIVES.find(
+    (freeDrive) => freeDrive.mapId === "nyc-upper-west-side",
+  );
+  if (!nycFreeDrive) throw new Error("NYC free drive is missing");
+  const nycCountry = getCountryProfile(nycFreeDrive.countryId);
+  const nycMapPack = getMapPack(nycFreeDrive.mapId);
+  const nycConfig = buildSimulationCoreConfig({
+    scenario: buildFreeDriveScenario(nycFreeDrive),
+    mapPack: nycMapPack,
+    trafficSide: nycCountry.trafficSide,
+    speedUnit: nycCountry.speedUnit,
+  });
+  const nycSurfaces = nycMapPack.geometry.roadSurfaces ?? [];
+  const nycRoadNetwork = new RoadNetwork(nycConfig.lanes ?? [], [], []);
+  const queensviewSurfaces = nycSurfaces.filter((surface) =>
+    surface.id.startsWith(NYC_QUEENSVIEW_NETWORK_PREFIX),
+  );
   const deliveryVan = getCareerVehicle("delivery-van");
   const deliveryVanClearanceHeightM = VEHICLE_DIMENSIONS["delivery-van"].height;
   const deliveryVanRequiredHeadroomM = deliveryVanClearanceHeightM + 0.08;
@@ -747,6 +807,266 @@ describe("elevated-road vehicle headroom", () => {
       `Every ordinary-road roof disc needs ${deliveryVanRequiredHeadroomM.toFixed(2)}m beneath the Sakuragawa network`,
     ).toEqual([]);
   });
+
+  it("keeps every Queensview lane on the authored road-surface elevation profile", () => {
+    const surfacesById = new Map(
+      queensviewSurfaces.map((surface) => [surface.id, surface]),
+    );
+    const coveredSurfaceIds = new Set<string>();
+    const failures: string[] = [];
+    let samples = 0;
+
+    for (const lane of nycRoadNetwork.lanes) {
+      if (!lane.roadId) continue;
+      const surface = surfacesById.get(lane.roadId);
+      if (!surface) continue;
+      coveredSurfaceIds.add(surface.id);
+      for (let distanceM = 0; distanceM <= lane.length; distanceM += 0.5) {
+        const point = nycRoadNetwork.pointOnLane(lane, distanceM);
+        const projected = projectedProfileElevation(surface.centerline, point);
+        samples += 1;
+        if (
+          projected.distanceM > surface.widthM / 2 + 1e-6 ||
+          Math.abs(projected.elevationM - (point.elevationM ?? 0)) > 1e-6
+        ) {
+          failures.push(
+            `${lane.id} at ${distanceM.toFixed(1)}m is ${projected.distanceM.toFixed(3)}m from ${surface.id} and differs by ${Math.abs(projected.elevationM - (point.elevationM ?? 0)).toFixed(6)}m vertically`,
+          );
+        }
+      }
+    }
+
+    expect(queensviewSurfaces.length).toBeGreaterThanOrEqual(10);
+    expect(coveredSurfaceIds).toEqual(
+      new Set(queensviewSurfaces.map((surface) => surface.id)),
+    );
+    expect(samples).toBeGreaterThan(5_000);
+    expect(
+      failures.slice(0, 25),
+      `${failures.length} Queensview lane samples disagree with their rendered/collision surface profile`,
+    ).toEqual([]);
+  });
+
+  it(
+    "sweeps the delivery van's full body and roof envelope over every Queensview surface",
+    { timeout: 150_000 },
+    () => {
+      const surfaceSampler = new RoadNetwork(
+        queensviewSurfaces.map((surface) => ({
+          id: `sweep-${surface.id}`,
+          roadId: surface.id,
+          points: surface.centerline,
+          width: surface.widthM,
+          loop: false,
+        })),
+        [],
+        [],
+      );
+      const surfacesById = new Map(
+        queensviewSurfaces.map((surface) => [surface.id, surface]),
+      );
+      const simulation = new SimulationCore({
+        ...nycConfig,
+        ...deliveryVan.physics,
+        playerClearanceHeightM: deliveryVanClearanceHeightM,
+        npcCount: 0,
+      });
+      const failures: string[] = [];
+      let samples = 0;
+
+      for (const samplingLane of surfaceSampler.lanes) {
+        const surface = samplingLane.roadId
+          ? surfacesById.get(samplingLane.roadId)
+          : undefined;
+        if (!surface) {
+          throw new Error(`Missing sampled Queensview surface for ${samplingLane.id}`);
+        }
+        const maximumLateralOffsetM = Math.max(
+          0,
+          surface.widthM / 2 - deliveryVan.physics.playerCapsuleRadiusM,
+        );
+        const lateralOffsetsM = maximumLateralOffsetM > 0.01
+          ? [-maximumLateralOffsetM, 0, maximumLateralOffsetM]
+          : [0];
+
+        for (
+          let distanceM = 0;
+          distanceM + 0.3 < samplingLane.length;
+          distanceM += 0.75
+        ) {
+          const centre = surfaceSampler.pointOnLane(samplingLane, distanceM);
+          const ahead = surfaceSampler.pointOnLane(samplingLane, distanceM + 0.3);
+          const authoredHeading = Math.atan2(
+            ahead.x - centre.x,
+            ahead.z - centre.z,
+          );
+          for (const lateralOffsetM of lateralOffsetsM) {
+            const x = centre.x + Math.cos(authoredHeading) * lateralOffsetM;
+            const z = centre.z - Math.sin(authoredHeading) * lateralOffsetM;
+            for (const reversePhysicalHeading of [false, true] as const) {
+              simulation.setPlayerPose(
+                {
+                  x,
+                  z,
+                  elevationM: centre.elevationM ?? 0,
+                  heading:
+                    authoredHeading + (reversePhysicalHeading ? Math.PI : 0),
+                },
+                Math.min(15, deliveryVan.physics.maxForwardSpeedMps),
+              );
+              simulation.drainEvents();
+              const snapshot = simulation.step(1 / 60);
+              samples += 1;
+              const collision = simulation
+                .drainEvents()
+                .find((event) => event.code === "collision");
+              if (!collision) continue;
+              failures.push(
+                `${surface.id} (${snapshot.road.laneId ?? "no projected lane"}) at ${distanceM.toFixed(2)}m, lateral ${lateralOffsetM.toFixed(2)}m, ${reversePhysicalHeading ? "reverse" : "forward"} heading: ${String(collision.evidence.obstacle ?? "unknown obstacle")}/${String(collision.evidence.obstacleId ?? "unknown id")} (${collision.correction})`,
+              );
+            }
+          }
+        }
+      }
+
+      expect(samples).toBeGreaterThan(15_000);
+      expect(
+        failures.slice(0, 25),
+        `${failures.length} production collider contacts across the Queensview paved envelope`,
+      ).toEqual([]);
+    },
+  );
+
+  it(
+    "keeps the delivery van's complete roof envelope clear beneath every real Queensview crossing",
+    { timeout: 90_000 },
+    () => {
+      const clearanceAt = createElevatedRoadGroundClearanceQuery(nycSurfaces);
+      const queensviewMainline = queensviewSurfaces.find(
+        (surface) => surface.id === "nyc-queensview-bridge",
+      );
+      if (!queensviewMainline) throw new Error("Missing Queensview mainline");
+      // The complete query deliberately reports the lowest soffit. At Vernon
+      // an adjacent ramp can therefore hide the higher parent deck even
+      // though both really cross the avenue. Keep a mainline-only query for
+      // coverage while the complete query remains authoritative for minimum
+      // vehicle headroom.
+      const mainlineClearanceAt = createElevatedRoadGroundClearanceQuery([
+        queensviewMainline,
+      ]);
+      const crossedQueensviewSurfacesByRoad = new Map<string, Set<string>>();
+      const mainlineCrossingRoadIds = new Set<string>();
+      const failures: string[] = [];
+      let samples = 0;
+
+      for (const lane of nycRoadNetwork.lanes) {
+        if (
+          !lane.roadId ||
+          lane.roadId.startsWith(NYC_QUEENSVIEW_NETWORK_PREFIX) ||
+          lane.maxElevationM >= ELEVATED_ROAD_STRUCTURE_THRESHOLD_M
+        ) {
+          continue;
+        }
+        const maximumLateralOffsetM = Math.max(
+          0,
+          lane.width / 2 - deliveryVan.physics.playerCapsuleRadiusM,
+        );
+        const lateralOffsetsM = maximumLateralOffsetM > 0.01
+          ? [-maximumLateralOffsetM, 0, maximumLateralOffsetM]
+          : [0];
+        for (let distanceM = 0; distanceM <= lane.length; distanceM += 2) {
+          const point = nycRoadNetwork.pointOnLane(lane, distanceM);
+          for (const alongM of [
+            -deliveryVan.physics.playerCapsuleHalfLengthM,
+            0,
+            deliveryVan.physics.playerCapsuleHalfLengthM,
+          ]) {
+            for (const lateralM of lateralOffsetsM) {
+              const roofSample = {
+                x:
+                  point.x +
+                  Math.sin(point.heading) * alongM +
+                  Math.cos(point.heading) * lateralM,
+                z:
+                  point.z +
+                  Math.cos(point.heading) * alongM -
+                  Math.sin(point.heading) * lateralM,
+              };
+              const connectedSurfaceIds = new Set<string>([lane.roadId]);
+              nycRoadNetwork.addLaneRoadSurfaceIds(
+                lane.id,
+                connectedSurfaceIds,
+                {
+                  includePredecessors: true,
+                  includeSuccessors: true,
+                  connectionPoint: roofSample,
+                  connectionCaptureDistanceM:
+                    deliveryVan.physics.playerCapsuleHalfLengthM +
+                    deliveryVan.physics.playerCapsuleRadiusM +
+                    0.75,
+                },
+              );
+              const obstruction = clearanceAt(
+                roofSample,
+                point.elevationM ?? 0,
+                deliveryVan.physics.playerCapsuleRadiusM,
+                false,
+                connectedSurfaceIds,
+                ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+              );
+              if (
+                (lane.roadId === "nyc-third" ||
+                  lane.roadId === "nyc-vernon") &&
+                mainlineClearanceAt(
+                  roofSample,
+                  point.elevationM ?? 0,
+                  deliveryVan.physics.playerCapsuleRadiusM,
+                  false,
+                  undefined,
+                  ELEVATED_ROAD_STRUCTURE_THRESHOLD_M,
+                )?.surfaceId === queensviewMainline.id
+              ) {
+                mainlineCrossingRoadIds.add(lane.roadId);
+              }
+              samples += 1;
+              if (!obstruction?.surfaceId.startsWith(NYC_QUEENSVIEW_NETWORK_PREFIX)) {
+                continue;
+              }
+              const crossed = crossedQueensviewSurfacesByRoad.get(lane.roadId);
+              if (crossed) crossed.add(obstruction.surfaceId);
+              else {
+                crossedQueensviewSurfacesByRoad.set(
+                  lane.roadId,
+                  new Set([obstruction.surfaceId]),
+                );
+              }
+              if (obstruction.clearanceM < deliveryVanRequiredHeadroomM) {
+                failures.push(
+                  `${lane.id} at ${distanceM.toFixed(1)}m, lateral ${lateralM.toFixed(2)}m: ${obstruction.surfaceId} leaves ${obstruction.clearanceM.toFixed(3)}m`,
+                );
+              }
+            }
+          }
+        }
+      }
+
+      expect(samples).toBeGreaterThan(100_000);
+      for (const groundRoadId of ["nyc-third", "nyc-vernon"] as const) {
+        expect(
+          mainlineCrossingRoadIds.has(groundRoadId),
+          `${groundRoadId} must remain a real stacked crossing beneath Queensview`,
+        ).toBe(true);
+        expect(
+          crossedQueensviewSurfacesByRoad.has(groundRoadId),
+          `${groundRoadId} must be included in complete-network clearance`,
+        ).toBe(true);
+      }
+      expect(
+        failures.slice(0, 25),
+        `Every ground-road delivery-van roof disc needs ${deliveryVanRequiredHeadroomM.toFixed(2)}m beneath Queensview`,
+      ).toEqual([]);
+    },
+  );
 
   it("keeps both Al Saraya host lanes clear beneath the complete Gezira entry slab", () => {
     const clearanceAt = createElevatedRoadGroundClearanceQuery(cairoSurfaces);

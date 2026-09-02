@@ -90,8 +90,12 @@ describe("street names", () => {
       ),
     );
     expect(new Set(claimed)).toEqual(produced);
-    // Every cross street carries addresses now, narrow one-ways included.
+    // Every ordinary cross street carries addresses now, narrow one-ways
+    // included. 40th Avenue remains named for navigation, but Queensview's
+    // paired terminal ramps and their clearance carve consume both usable
+    // kerbs, so claiming curbside doors there would be false.
     expect(claimed).toContain("W 91st St");
     expect(claimed).toContain("W 106th St");
+    expect(claimed).not.toContain("40th Ave");
   });
 });

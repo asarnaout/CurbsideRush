@@ -1,4 +1,11 @@
-import { NullEngine, Scene, TransformNode } from "@babylonjs/core";
+import {
+  Mesh,
+  NullEngine,
+  Scene,
+  TransformNode,
+  Vector3,
+  VertexBuffer,
+} from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import { NYC_MAP_PACK } from "../app/game/cities/nyc";
 import { buildNycLandmark } from "../app/game/render/nycLandmarks";
@@ -35,6 +42,7 @@ import type { GameCanvasMapPack } from "../app/game/sessionContract";
  */
 
 const BRIDGE_IDS = ["nyc-queensview-bridge", "nyc-harborline-bridge"] as const;
+const QUEENSVIEW_TEST_OVERHEAD_CLEARANCE_M = 6.5;
 
 const bridgeSurface = (id: string) => {
   const surface = (NYC_MAP_PACK.geometry.roadSurfaces ?? []).find(
@@ -53,8 +61,17 @@ const lateralFromDeckCentre = (
   return Math.hypot(point.x - nearest.x, point.z - nearest.z);
 };
 
+interface BuiltBridgeMesh {
+  readonly name: string;
+  readonly materialName: string | undefined;
+  readonly totalVertices: number;
+  readonly checkCollisions: boolean;
+  readonly worldVertices: readonly Vector3[];
+}
+
 interface BuiltBridge {
   readonly id: string;
+  readonly meshes: readonly BuiltBridgeMesh[];
   /** Mesh name -> perpendicular distance from the deck centreline. */
   readonly lateralByName: ReadonlyMap<string, number>;
 }
@@ -81,16 +98,38 @@ const buildBridges = (): readonly BuiltBridge[] => {
       true,
     );
     scene.meshes.forEach((mesh) => mesh.computeWorldMatrix(true));
+    const sceneMeshes = scene.meshes.filter(
+      (mesh): mesh is Mesh => !before.has(mesh.name) && mesh instanceof Mesh,
+    );
+    const meshes = sceneMeshes.map((mesh): BuiltBridgeMesh => {
+      const positions = mesh.getVerticesData(VertexBuffer.PositionKind) ?? [];
+      const world = mesh.computeWorldMatrix(true);
+      const worldVertices: Vector3[] = [];
+      for (let offset = 0; offset < positions.length; offset += 3) {
+        worldVertices.push(
+          Vector3.TransformCoordinates(
+            Vector3.FromArray(positions, offset),
+            world,
+          ),
+        );
+      }
+      return {
+        name: mesh.name,
+        materialName: mesh.material?.name,
+        totalVertices: mesh.getTotalVertices(),
+        checkCollisions: mesh.checkCollisions,
+        worldVertices,
+      };
+    });
     const lateralByName = new Map<string, number>();
-    for (const mesh of scene.meshes) {
-      if (before.has(mesh.name)) continue;
+    for (const mesh of sceneMeshes) {
       const absolute = mesh.getAbsolutePosition();
       lateralByName.set(
         mesh.name,
         lateralFromDeckCentre(id, { x: absolute.x, z: absolute.z }),
       );
     }
-    built.push({ id, lateralByName });
+    built.push({ id, meshes, lateralByName });
   }
   scene.dispose();
   engine.dispose();
@@ -100,10 +139,73 @@ const buildBridges = (): readonly BuiltBridge[] => {
 const namesMatching = (bridge: BuiltBridge, fragment: string): string[] =>
   [...bridge.lateralByName.keys()].filter((name) => name.includes(fragment));
 
+const queensviewVerticalRangesWithOffset = (
+  elevationOffsetM: number,
+): ReadonlyMap<string, readonly [number, number]> => {
+  const mapPack = {
+    ...NYC_MAP_PACK,
+    geometry: {
+      ...NYC_MAP_PACK.geometry,
+      roadSurfaces: (NYC_MAP_PACK.geometry.roadSurfaces ?? []).map((surface) =>
+        surface.id === "nyc-queensview-bridge"
+          ? {
+              ...surface,
+              centerline: surface.centerline.map((point) => ({
+                ...point,
+                elevationM: (point.elevationM ?? 0) + elevationOffsetM,
+              })),
+            }
+          : surface,
+      ),
+    },
+  } as unknown as GameCanvasMapPack;
+  const landmark = mapPack.geometry.landmarks.find(
+    (candidate) => candidate.id === "nyc-queensview-bridge",
+  )!;
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  buildNycLandmark(
+    { scene, staticSceneryFreeze: [] },
+    landmark,
+    null as never,
+    mapPack,
+  );
+  const ranges = new Map<string, readonly [number, number]>();
+  for (const suffix of [
+    "-cantilever-lattice",
+    "-cantilever-necklace-lights",
+  ]) {
+    const mesh = scene.meshes.find((candidate) => candidate.name.endsWith(suffix));
+    if (!(mesh instanceof Mesh)) throw new Error(`missing Queensview ${suffix}`);
+    const positions = mesh.getVerticesData(VertexBuffer.PositionKind) ?? [];
+    const world = mesh.computeWorldMatrix(true);
+    let minimumY = Number.POSITIVE_INFINITY;
+    let maximumY = Number.NEGATIVE_INFINITY;
+    for (let offset = 0; offset < positions.length; offset += 3) {
+      const vertex = Vector3.TransformCoordinates(
+        Vector3.FromArray(positions, offset),
+        world,
+      );
+      minimumY = Math.min(minimumY, vertex.y);
+      maximumY = Math.max(maximumY, vertex.y);
+    }
+    ranges.set(suffix, [minimumY, maximumY]);
+  }
+  scene.dispose();
+  engine.dispose();
+  return ranges;
+};
+
 describe("NYC bridge decks", () => {
   const bridges = buildBridges();
+  const harborline = bridges.find(
+    (bridge) => bridge.id === "nyc-harborline-bridge",
+  )!;
+  const queensview = bridges.find(
+    (bridge) => bridge.id === "nyc-queensview-bridge",
+  )!;
 
-  it("draws the deck-edge parapet exactly where the collider stands", () => {
+  it("keeps Harborline's at-grade deck-edge parapet on its collider", () => {
     // One formula, two files. When they disagree you hit a wall that is not
     // drawn and drive through one that is.
     const obstacles = buildStaticObstacles({
@@ -114,7 +216,7 @@ describe("NYC bridge decks", () => {
         1,
       ),
     });
-    for (const bridge of bridges) {
+    for (const bridge of [harborline]) {
       const colliderLaterals = obstacles
         .filter(
           (obstacle) =>
@@ -145,8 +247,8 @@ describe("NYC bridge decks", () => {
     }
   });
 
-  it("keeps every pylon, cable and lamp out of the carriageway", () => {
-    for (const bridge of bridges) {
+  it("keeps Harborline's pylons, cables and lamps out of the carriageway", () => {
+    for (const bridge of [harborline]) {
       const halfCarriagewayM = bridgeSurface(bridge.id).widthM / 2;
       const deckEdgeM =
         halfCarriagewayM + defaultSidewalkWidthM(NYC_MAP_PACK) + 0.4;
@@ -171,11 +273,11 @@ describe("NYC bridge decks", () => {
     }
   });
 
-  it("mirrors each pylon pair instead of sliding both the same way", () => {
+  it("mirrors each Harborline pylon pair instead of sliding both the same way", () => {
     // The `(side * width) / 2 + 1` bug is invisible to a distance-only check
     // on one side: the pair straddled the deck, one 1 m too far out and one
     // 1.3 m into the road. Both sides of a pair must be the same distance out.
-    for (const bridge of bridges) {
+    for (const bridge of [harborline]) {
       const byFraction = new Map<string, number[]>();
       for (const name of namesMatching(bridge, "-pylon-")) {
         if (name.includes("-pylon-head-")) continue;
@@ -195,11 +297,11 @@ describe("NYC bridge decks", () => {
     }
   });
 
-  it("puts a guardrail between the carriageway and the footway", () => {
+  it("keeps Harborline's guardrail between the carriageway and footway", () => {
     // Visual only by design — no collider, so the deck stays as drivable as it
     // has always been. What is pinned is where it stands, not that it stops
     // anything.
-    for (const bridge of bridges) {
+    for (const bridge of [harborline]) {
       const halfCarriagewayM = bridgeSurface(bridge.id).widthM / 2;
       const rails = namesMatching(bridge, "-guardrail-");
       expect(rails.length, `${bridge.id} guardrails`).toBe(2);
@@ -208,6 +310,67 @@ describe("NYC bridge decks", () => {
         expect(lateralM, name).toBeGreaterThan(halfCarriagewayM);
         expect(lateralM, name).toBeLessThan(halfCarriagewayM + 1);
       }
+    }
+  });
+
+  it("renders Queensview as a compact blackened-steel cantilever lattice", () => {
+    const lattice = queensview.meshes.filter((mesh) =>
+      mesh.name.endsWith("-cantilever-lattice"),
+    );
+    const necklace = queensview.meshes.filter((mesh) =>
+      mesh.name.endsWith("-cantilever-necklace-lights"),
+    );
+    expect(lattice).toHaveLength(1);
+    expect(necklace).toHaveLength(1);
+    expect(
+      queensview.meshes.some(
+        (mesh) => mesh.name.includes("-pylon-") || mesh.name.includes("-cable-"),
+      ),
+    ).toBe(false);
+    expect(lattice[0].materialName).toBe(
+      "nyc-queensview-bridge-cantilever-blackened-steel",
+    );
+    expect(necklace[0].materialName).toBe(
+      "nyc-queensview-bridge-cantilever-amber-light",
+    );
+    expect(lattice[0].totalVertices).toBeGreaterThan(1_000);
+    expect(queensview.meshes.length).toBeLessThanOrEqual(3);
+    expect(queensview.meshes.every((mesh) => !mesh.checkCollisions)).toBe(true);
+  });
+
+  it("keeps Queensview's low lattice outboard and only crosses lanes high overhead", () => {
+    const lattice = queensview.meshes.find((mesh) =>
+      mesh.name.endsWith("-cantilever-lattice"),
+    )!;
+    const surface = bridgeSurface(queensview.id);
+    const fullDeckHalfWidthM =
+      surface.widthM / 2 +
+      (surface.sidewalkWidthM ?? defaultSidewalkWidthM(NYC_MAP_PACK)) +
+      0.4;
+    for (const [index, vertex] of lattice.worldVertices.entries()) {
+      const nearest = nearestPointOnPolyline(vertex, surface.centerline);
+      const lateralM = Math.hypot(vertex.x - nearest.x, vertex.z - nearest.z);
+      if (lateralM >= fullDeckHalfWidthM + 0.5) continue;
+      expect(
+        vertex.y - (nearest.elevationM ?? 0),
+        `inboard truss vertex ${index}`,
+      ).toBeGreaterThan(QUEENSVIEW_TEST_OVERHEAD_CLEARANCE_M);
+    }
+  });
+
+  it("moves every Queensview truss and necklace level with the authored deck", () => {
+    const baseline = queensviewVerticalRangesWithOffset(0);
+    const lifted = queensviewVerticalRangesWithOffset(7);
+    for (const [suffix, baselineRange] of baseline) {
+      const liftedRange = lifted.get(suffix)!;
+      expect(liftedRange[0] - baselineRange[0], `${suffix} minimum`).toBeCloseTo(
+        7,
+        5,
+      );
+      expect(liftedRange[1] - baselineRange[1], `${suffix} maximum`).toBeCloseTo(
+        7,
+        5,
+      );
     }
   });
 });

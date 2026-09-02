@@ -11,6 +11,7 @@ import {
   splitMarkingAtCrossings,
   type MarkingPoint,
 } from "../app/game/roadMarkings";
+import { NYC_QUEENSVIEW_ACCESS_SITES } from "../app/game/cities/nycElevatedRoadNetwork";
 
 const p = (x: number, z: number): MarkingPoint => ({ x, z });
 
@@ -131,11 +132,33 @@ describe("lane paint stops at a junction", () => {
       ),
     );
     expect(runs.length).toBeGreaterThan(surfaces.length);
+    const queensviewNodeIds = new Set(
+      nyc.laneGraph.nodes
+        .filter((node) => node.id.startsWith("nyc-queensview-"))
+        .map((node) => node.id),
+    );
     for (const node of nyc.laneGraph.nodes) {
+      // A lane split, merge, or same-level mainline knot is not an
+      // intersection box. Its centre/lane paint must continue through the
+      // taper instead of disappearing as though cross traffic had priority.
+      if (queensviewNodeIds.has(node.id)) continue;
       expect(
         nearestDistance(node.position, runs),
         `paint through ${node.id}`,
       ).toBeGreaterThan(4.5);
+    }
+
+    // Pin all eight ground mouths separately: they sit one lane offset from
+    // their host road's continuing centre line, proving the free-flow taper
+    // retained useful guidance while the ordinary boxes above remain blank.
+    for (const movement of NYC_QUEENSVIEW_ACCESS_SITES.flatMap((site) => [
+      site.entry,
+      site.exit,
+    ])) {
+      const mouth = nyc.laneGraph.nodes.find(
+        (node) => node.id === movement.mouthNodeId,
+      )!;
+      expect(nearestDistance(mouth.position, runs), mouth.id).toBeCloseTo(1.7, 6);
     }
   });
 
@@ -150,9 +173,16 @@ describe("lane paint stops at a junction", () => {
         );
         const painted = runs.reduce((total, run) => total + lengthOf(run), 0);
         const whole = lengthOf(marking.points);
-        // Junction gaps cost a little; losing more than a fifth of a road's
-        // paint would mean the bites are far too greedy.
-        expect(painted / whole, `${surface.id}/${marking.id}`).toBeGreaterThan(0.8);
+        // Junction gaps cost a little; losing more than a fifth of an ordinary
+        // road's paint would mean the bites are far too greedy. Queensview's
+        // 50 m terminal carrier is intentionally bracketed by two junction
+        // collars, so pin its stronger physical invariant (over 37.5 m of
+        // continuous yellow guidance) without weakening any full-length road.
+        const minimumPaintedFraction =
+          surface.id === "nyc-queensview-east-carrier" ? 0.75 : 0.8;
+        expect(painted / whole, `${surface.id}/${marking.id}`).toBeGreaterThan(
+          minimumPaintedFraction,
+        );
         // A road with no interior crossing yet (Vernon Blvd today: only its
         // two bridge endpoints, until the borough phase's bank streets give
         // it one) has nothing to split its paint at, so it stays one run —

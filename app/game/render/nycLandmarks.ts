@@ -1,12 +1,16 @@
 import {
   Color3,
+  Mesh,
   type Scene,
   StandardMaterial,
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
 import { createBox, createCylinder } from "./meshPrimitives";
-import { cairoBridgePortalVisualAxis } from "../geometry/waterGeometry";
+import {
+  cairoBridgePortalVisualAxis,
+  type CairoBridgeVisualAxis,
+} from "../geometry/waterGeometry";
 import { nearestPointOnPolyline } from "../geometry/roadStrips";
 import type { GameCanvasMapPack } from "../sessionContract";
 import { defaultSidewalkWidthM } from "../visuals";
@@ -52,6 +56,367 @@ const GUARDRAIL_HEIGHT_M = 0.5;
 /** How far outboard of the deck edge a tower's centre stands. */
 const PYLON_DECK_OVERHANG_M = 1;
 
+const QUEENSVIEW_BRIDGE_ID = "nyc-queensview-bridge";
+const QUEENSVIEW_TRUSS_OUTBOARD_GAP_M = 1.45;
+const QUEENSVIEW_TRUSS_LOWER_DEPTH_M = 2.1;
+const QUEENSVIEW_TRUSS_MID_RISE_M = 3.1;
+const QUEENSVIEW_TRUSS_BASE_RISE_M = 7.4;
+const QUEENSVIEW_TRUSS_TOWER_RISE_M = 14.4;
+const QUEENSVIEW_TRUSS_BEAM_M = 0.24;
+const QUEENSVIEW_PORTAL_CLEARANCE_M = 7.2;
+
+type NycRoadSurface = NonNullable<
+  GameCanvasMapPack["geometry"]["roadSurfaces"]
+>[number];
+
+interface QueensviewTrussStation {
+  readonly alongM: number;
+  readonly fraction: number;
+  readonly deckElevationM: number;
+  readonly lowerY: number;
+  readonly midY: number;
+  readonly topY: number;
+}
+
+/**
+ * Samples the same authored centreline the road, collision and elevated-road
+ * passes consume. Keeping the landmark root at world Y=0 means every truss
+ * member can use the sampled value directly, including a sloping approach;
+ * there is no independent decorative "bridge height" to drift out of sync.
+ */
+const queensviewDeckElevationAt = (
+  surface: NycRoadSurface,
+  axis: CairoBridgeVisualAxis,
+  alongM: number,
+): number => {
+  const point = {
+    x: axis.center.x + Math.sin(axis.headingRad) * alongM,
+    z: axis.center.z + Math.cos(axis.headingRad) * alongM,
+  };
+  return nearestPointOnPolyline(point, surface.centerline).elevationM ?? 0;
+};
+
+const queensviewTowerInfluence = (fraction: number): number => {
+  const nearestTower = Math.min(
+    ...PYLON_FRACTIONS.map((tower) => Math.abs(fraction - tower)),
+  );
+  return Math.max(0, 1 - nearestTower / 0.2);
+};
+
+const queensviewTrussStations = (
+  surface: NycRoadSurface,
+  axis: CairoBridgeVisualAxis,
+): readonly QueensviewTrussStation[] => {
+  const uniformPanelCount = Math.max(10, Math.ceil(axis.lengthM / 18));
+  const fractions = new Set<number>(PYLON_FRACTIONS);
+  for (let index = 0; index <= uniformPanelCount; index += 1) {
+    fractions.add(index / uniformPanelCount);
+  }
+  return [...fractions]
+    .sort((first, second) => first - second)
+    .map((fraction) => {
+      const alongM = (fraction - 0.5) * axis.lengthM;
+      const deckElevationM = queensviewDeckElevationAt(surface, axis, alongM);
+      const topRiseM =
+        QUEENSVIEW_TRUSS_BASE_RISE_M +
+        (QUEENSVIEW_TRUSS_TOWER_RISE_M - QUEENSVIEW_TRUSS_BASE_RISE_M) *
+          queensviewTowerInfluence(fraction);
+      return {
+        alongM,
+        fraction,
+        deckElevationM,
+        lowerY: deckElevationM - QUEENSVIEW_TRUSS_LOWER_DEPTH_M,
+        midY: deckElevationM + QUEENSVIEW_TRUSS_MID_RISE_M,
+        topY: deckElevationM + topRiseM,
+      };
+    });
+};
+
+const createQueensviewSideBeam = (
+  scene: Scene,
+  name: string,
+  start: readonly [number, number],
+  end: readonly [number, number],
+  lateralM: number,
+  thicknessM: number,
+  material: StandardMaterial,
+  root: TransformNode,
+): Mesh | null => {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const lengthM = Math.hypot(dx, dy);
+  if (lengthM < 0.05) return null;
+  const beam = createBox(
+    scene,
+    name,
+    { width: lengthM, height: thicknessM, depth: thicknessM },
+    new Vector3(
+      (start[0] + end[0]) / 2,
+      (start[1] + end[1]) / 2,
+      lateralM,
+    ),
+    material,
+    root,
+  );
+  beam.rotation.z = Math.atan2(dy, dx);
+  return beam;
+};
+
+const mergeQueensviewParts = (
+  ctx: NycLandmarkCtx,
+  name: string,
+  parts: readonly Mesh[],
+): Mesh | null => {
+  if (!parts.length) return null;
+  for (const part of parts) part.computeWorldMatrix(true);
+  const merged = Mesh.MergeMeshes(
+    [...parts],
+    true,
+    true,
+    undefined,
+    false,
+    false,
+  );
+  if (!merged) return null;
+  merged.name = name;
+  merged.isPickable = false;
+  // Landmark dressing is visual-only. The canonical road/barrier collision
+  // remains wholly in simulationAdapter/elevatedRoadGeometry, so a lattice
+  // silhouette can never grow a hidden blocker at a ramp or merge mouth.
+  merged.checkCollisions = false;
+  ctx.staticSceneryFreeze.push(merged);
+  return merged;
+};
+
+/**
+ * Queensboro-inspired double-cantilever silhouette for Queensview. It is a
+ * deep, riveted-looking pair of outboard lattices rather than the suspension
+ * pylons/cables used by Harborline. Roughly a hundred repeated members are
+ * baked into three static meshes (steel, amber lamps, granite pier bases), so
+ * the richer skyline does not become a per-panel draw-call tax.
+ */
+const buildQueensviewCantilever = (
+  ctx: NycLandmarkCtx,
+  landmarkId: string,
+  axis: CairoBridgeVisualAxis,
+  surface: NycRoadSurface,
+): void => {
+  const scene = ctx.scene;
+  const root = new TransformNode(`${landmarkId}-cantilever-scratch`, scene);
+  root.position.set(axis.center.x, 0, axis.center.z);
+  root.rotation.y = axis.boxYawRad;
+  root.computeWorldMatrix(true);
+
+  const blackenedSteel = makeMaterial(
+    scene,
+    `${landmarkId}-cantilever-blackened-steel`,
+    new Color3(0.035, 0.06, 0.085),
+  );
+  blackenedSteel.specularColor = new Color3(0.16, 0.19, 0.21);
+  const granite = makeMaterial(
+    scene,
+    `${landmarkId}-cantilever-gray-granite`,
+    new Color3(0.47, 0.48, 0.47),
+  );
+  const amber = makeMaterial(
+    scene,
+    `${landmarkId}-cantilever-amber-light`,
+    new Color3(0.95, 0.61, 0.2),
+    new Color3(1.45, 0.58, 0.12),
+  );
+  const stations = queensviewTrussStations(surface, axis);
+  const trussLateralM =
+    Math.max(axis.widthM, surface.widthM) / 2 +
+    QUEENSVIEW_TRUSS_OUTBOARD_GAP_M;
+  const steelParts: Mesh[] = [];
+  const lampParts: Mesh[] = [];
+  const graniteParts: Mesh[] = [];
+
+  const addBeam = (
+    name: string,
+    start: readonly [number, number],
+    end: readonly [number, number],
+    lateralM: number,
+    thicknessM = QUEENSVIEW_TRUSS_BEAM_M,
+  ): void => {
+    const beam = createQueensviewSideBeam(
+      scene,
+      `${landmarkId}-${name}`,
+      start,
+      end,
+      lateralM,
+      thicknessM,
+      blackenedSteel,
+      root,
+    );
+    if (beam) steelParts.push(beam);
+  };
+
+  for (const side of [-1, 1] as const) {
+    const lateralM = side * trussLateralM;
+    for (const [index, station] of stations.entries()) {
+      // Vertical posts and broad joint plates make the merged silhouette read
+      // as riveted heavy steel without modelling thousands of literal rivets.
+      addBeam(
+        `cantilever-vertical-${side}-${index}`,
+        [station.alongM, station.lowerY],
+        [station.alongM, station.topY],
+        lateralM,
+        0.34,
+      );
+      steelParts.push(
+        createBox(
+          scene,
+          `${landmarkId}-cantilever-gusset-${side}-${index}`,
+          { width: 0.84, height: 0.84, depth: 0.18 },
+          new Vector3(station.alongM, station.midY, lateralM),
+          blackenedSteel,
+          root,
+        ),
+      );
+      lampParts.push(
+        createBox(
+          scene,
+          `${landmarkId}-cantilever-necklace-source-${side}-${index}`,
+          { width: 0.24, height: 0.24, depth: 0.24 },
+          new Vector3(
+            station.alongM,
+            station.midY + 0.38,
+            lateralM - side * 0.17,
+          ),
+          amber,
+          root,
+        ),
+      );
+
+      const next = stations[index + 1];
+      if (!next) continue;
+      addBeam(
+        `cantilever-lower-chord-${side}-${index}`,
+        [station.alongM, station.lowerY],
+        [next.alongM, next.lowerY],
+        lateralM,
+        0.38,
+      );
+      addBeam(
+        `cantilever-mid-chord-${side}-${index}`,
+        [station.alongM, station.midY],
+        [next.alongM, next.midY],
+        lateralM,
+        0.3,
+      );
+      addBeam(
+        `cantilever-upper-chord-${side}-${index}`,
+        [station.alongM, station.topY],
+        [next.alongM, next.topY],
+        lateralM,
+        0.42,
+      );
+      // X-bracing above and below the mid chord gives the bridge its dense
+      // double-level cantilever read from both roadway and waterfront.
+      addBeam(
+        `cantilever-lower-diagonal-a-${side}-${index}`,
+        [station.alongM, station.lowerY],
+        [next.alongM, next.midY],
+        lateralM,
+      );
+      addBeam(
+        `cantilever-lower-diagonal-b-${side}-${index}`,
+        [station.alongM, station.midY],
+        [next.alongM, next.lowerY],
+        lateralM,
+      );
+      addBeam(
+        `cantilever-upper-diagonal-a-${side}-${index}`,
+        [station.alongM, station.midY],
+        [next.alongM, next.topY],
+        lateralM,
+      );
+      addBeam(
+        `cantilever-upper-diagonal-b-${side}-${index}`,
+        [station.alongM, station.topY],
+        [next.alongM, next.midY],
+        lateralM,
+      );
+    }
+  }
+
+  for (const [towerIndex, towerFraction] of PYLON_FRACTIONS.entries()) {
+    const towerStation = stations.reduce((nearest, candidate) =>
+      Math.abs(candidate.fraction - towerFraction) <
+      Math.abs(nearest.fraction - towerFraction)
+        ? candidate
+        : nearest,
+    );
+    // Cross-road portal beams exist only above a deliberately generous
+    // clearance envelope; everything below them stays outside the full deck.
+    const portalY = Math.max(
+      towerStation.deckElevationM + QUEENSVIEW_PORTAL_CLEARANCE_M,
+      towerStation.topY - 1.15,
+    );
+    steelParts.push(
+      createBox(
+        scene,
+        `${landmarkId}-cantilever-high-portal-${towerIndex}`,
+        {
+          width: 0.52,
+          height: 0.52,
+          depth: trussLateralM * 2 + 0.35,
+        },
+        new Vector3(towerStation.alongM, portalY, 0),
+        blackenedSteel,
+        root,
+      ),
+    );
+
+    const pierTopY = towerStation.lowerY - 0.25;
+    if (pierTopY > 1.2) {
+      for (const side of [-1, 1] as const) {
+        graniteParts.push(
+          createBox(
+            scene,
+            `${landmarkId}-cantilever-pier-source-${towerIndex}-${side}`,
+            {
+              width: 2.4,
+              height: pierTopY,
+              depth: 3.5,
+            },
+            new Vector3(
+              towerStation.alongM,
+              pierTopY / 2,
+              side * trussLateralM,
+            ),
+            granite,
+            root,
+          ),
+        );
+      }
+    }
+  }
+
+  mergeQueensviewParts(
+    ctx,
+    `${landmarkId}-cantilever-lattice`,
+    steelParts,
+  );
+  mergeQueensviewParts(
+    ctx,
+    `${landmarkId}-cantilever-necklace-lights`,
+    lampParts,
+  );
+  mergeQueensviewParts(
+    ctx,
+    `${landmarkId}-cantilever-granite-piers`,
+    graniteParts,
+  );
+  // All source children were consumed by the merges, and no production scene
+  // node should remain solely to remember the landmark's construction frame.
+  root.dispose();
+  blackenedSteel.freeze();
+  granite.freeze();
+  amber.freeze();
+};
+
 export function buildNycLandmark(
   ctx: NycLandmarkCtx,
   landmark: GameCanvasMapPack["geometry"]["landmarks"][number],
@@ -78,6 +443,18 @@ export function buildNycLandmark(
   // moment the deck width started counting its footways.
   const carriagewayWidthM =
     roadSurfaces.find((surface) => surface.id === landmark.id)?.widthM ?? width;
+  const bridgeSurface = roadSurfaces.find(
+    (surface) => surface.id === landmark.id,
+  );
+  if (landmark.id === QUEENSVIEW_BRIDGE_ID && bridgeSurface) {
+    // The shared elevated-road layer owns Queensview's deck, continuous
+    // barriers, support clearances and road lamps. This landmark contributes
+    // only the outboard cantilever identity, sampled from that same surface;
+    // duplicating the old at-grade portal walls here would overlap the shared
+    // barrier and put a second visual collision line at the water crossing.
+    buildQueensviewCantilever(ctx, landmark.id, axis, bridgeSurface);
+    return true;
+  }
   const root = new TransformNode(`${landmark.id}-axis`, scene);
   root.position.set(axis.center.x, 0, axis.center.z);
   root.rotation.y = axis.boxYawRad;

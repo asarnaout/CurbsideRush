@@ -13,7 +13,11 @@ import type {
   WorldPoint,
 } from "../types";
 import { CONNECTOR_BLEND_RUN_M } from "../laneConnectors";
-import { carveBlocksForRailCorridors } from "../geometry/railCorridor";
+import {
+  carveBlocksForLinearCorridors,
+  carveBlocksForRailCorridors,
+} from "../geometry/railCorridor";
+import { buildNycElevatedRoadNetwork } from "./nycElevatedRoadNetwork";
 import {
   anchoredSpawn,
   approach,
@@ -32,11 +36,17 @@ import {
   roadSurface,
 } from "./cityAuthoringHelpers";
 
-/** This file's own last-reviewed date — was `content.ts`'s `CONTENT_REVIEWED_ON`
- * (still "2026-07-10" as of the move) before this content had its own file;
- * kept local rather than imported back from `content.ts` to avoid a cycle
- * (`content.ts` imports `NYC_MAP_PACK` from here). */
-export const NYC_CONTENT_REVIEWED_ON = "2026-07-10";
+export {
+  NYC_QUEENSVIEW_ACCESS_SITES,
+  NYC_QUEENSVIEW_DECK_ELEVATION_M,
+  NYC_QUEENSVIEW_MAX_CHORD_M,
+  NYC_QUEENSVIEW_MAX_GRADE,
+  NYC_QUEENSVIEW_MAX_HEADING_STEP_DEG,
+  NYC_QUEENSVIEW_NETWORK_PREFIX,
+} from "./nycElevatedRoadNetwork";
+
+/** Kept local because `content.ts` imports `NYC_MAP_PACK` from this module. */
+export const NYC_CONTENT_REVIEWED_ON = "2026-09-02";
 
 const osmSource = makeOsmSource(NYC_CONTENT_REVIEWED_ON);
 
@@ -452,20 +462,6 @@ export const NYC_STREETS: readonly NycRoadSpec[] = [
   // W/E 65th, 79th and 96th are the park transverses: real crossings, so
   // they run the park's full width rather than stopping at its edge.
   { key: "65", nodeKey: "65", roadId: "nyc-west-65", name: "W 65th St", speedLimit: 30, coordinate: -960, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_TRANSVERSE_CROSSINGS },
-  // Queensview Bridge: two-way, the grander of the two river crossings (NYC
-  // east expansion section 3.3) — wider than Harborline, but still one lane
-  // each way, not the plan's two. Two lanes on the same side of a two-way
-  // carriageway sit at different offsets from the centreline (1.7 m and
-  // 3.4 m), so their junction connector curves ease out over different arc
-  // lengths and their stop lines land ~1.5 m out of line — intersectionVisuals
-  // .test.ts's "parallel lanes' bars merge into one line" catches it,
-  // correctly: a one-way multi-lane road's two lanes are symmetric
-  // (-1.7 m/+1.7 m) with equal, mirrored arc lengths, so that case never hits
-  // this. Fixing it generally means changing the shared junction-connector
-  // curve math everything else relies on, for one bridge's flavour — the
-  // plan is explicit that flavour, not fidelity, is the goal, so the width
-  // difference alone carries "grander" instead.
-  { key: "qvb", nodeKey: "qvb", roadId: "nyc-queensview-bridge", name: "Queensview Bridge", speedLimit: 40, coordinate: -840, widthM: 14, oneWay: null, lanesPerDirection: 1, crossings: NYC_BRIDGE_CROSSINGS },
   { key: "68", nodeKey: "68", roadId: "nyc-west-68", name: "W 68th St", speedLimit: 25, coordinate: -720, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "72", nodeKey: "72", roadId: "nyc-west-72", name: "W 72nd St", speedLimit: 30, coordinate: -480, widthM: 10.4, oneWay: null, lanesPerDirection: 1, crossings: NYC_WEST_STREET_CROSSINGS },
   { key: "e72", nodeKey: "e72", roadId: "nyc-east-72", name: "E 72nd St", speedLimit: 25, coordinate: -480, widthM: 9, oneWay: "forward", lanesPerDirection: 1, crossings: NYC_EAST_STREET_CROSSINGS },
@@ -1123,18 +1119,41 @@ function buildNycBlocks(
 }
 
 const nycGrid = buildNycGrid(NYC_AVENUES, NYC_STREETS);
-const nycLanes = nycGrid.lanes;
-const nycControls = nycGrid.controls;
+const nycRoadNetwork = buildNycElevatedRoadNetwork(nycGrid);
+const nycLanes = nycRoadNetwork.lanes;
+const nycHostLaneSplitDistance = new Map(
+  nycRoadNetwork.hostLaneSplits.map((split) => [split.sourceLaneId, split.distanceAlongM]),
+);
+const nycControls = nycGrid.controls.map((entry) => ({
+  ...entry,
+  control: {
+    ...entry.control,
+    approaches: entry.control.approaches.map((controlApproach) => {
+      const splitDistanceM = nycHostLaneSplitDistance.get(controlApproach.stopLine.laneId);
+      return splitDistanceM === undefined
+        ? controlApproach
+        : {
+            ...controlApproach,
+            stopLine: {
+              ...controlApproach.stopLine,
+              distanceAlongM: controlApproach.stopLine.distanceAlongM - splitDistanceM,
+            },
+          };
+    }),
+  },
+}));
 const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
 /**
  * The borough freight lead (rail feature): a New York & Atlantic-style line
  * running the full Queens strip north-south along the Crescent–Steinway
  * mid-block seam at x=1030 — the way the real Lower Montauk hides behind
- * houses — with a gated crossing at all five numbered avenues AND both East
- * River bridge approach roads, so every trip into the borough funnels past
- * one. Manhattan stays rail-free on purpose: the island has had no street
- * running since the West Side Improvement elevated "Death Avenue" in 1941,
+ * houses — with a gated crossing at all five numbered avenues and the
+ * at-grade Harborline approach, so every trip into the borough funnels past
+ * one. Queensview ends west of the freight corridor at bridge height and has
+ * no fictional level crossing. Manhattan stays rail-free on purpose: the
+ * island has had no street running since the West Side Improvement elevated
+ * "Death Avenue" in 1941,
  * and the owner picked the authentic borough option over a throwback.
  * No elevated spans: the line parallels the river and never crosses water.
  */
@@ -1150,7 +1169,6 @@ const NYC_RAIL_LINES: readonly RailLine[] = [
     corridorHalfWidthM: 4.5,
     crossingControlIds: [
       "us-rail-x-40",
-      "us-rail-x-queensview",
       "us-rail-x-44",
       "us-rail-x-48",
       "us-rail-x-52",
@@ -1180,14 +1198,13 @@ const NYC_RAIL_LINES: readonly RailLine[] = [
 ];
 
 const nycSurfaceById = (id: string): RoadSurface => {
-  const surface = nycGrid.roadSurfaces.find((candidate) => candidate.id === id);
+  const surface = nycRoadNetwork.roadSurfaces.find((candidate) => candidate.id === id);
   if (!surface) throw new Error(`nyc rail crossing: unknown surface ${id}`);
   return surface;
 };
 
 const nycRailCrossings = [
   ["us-rail-x-40", "nyc-bank-40"],
-  ["us-rail-x-queensview", "nyc-queensview-bridge"],
   ["us-rail-x-44", "nyc-bank-44"],
   ["us-rail-x-48", "nyc-bank-48"],
   ["us-rail-x-52", "nyc-bank-52"],
@@ -1209,7 +1226,7 @@ export const NYC_MAP_PACK: MapPack = {
   countryIds: ["us"],
   // Derived from the road specs rather than listed again, so a new street
   // still carries its name on the one line that declares it.
-  roadNames: nycGrid.roadNames,
+  roadNames: nycRoadNetwork.roadNames,
   // Twelve cars is what every map got, and it is what this one had when it
   // was a fifth the size (47 km of lane, the west grid alone). Spread that
   // thin they left the streets empty, and patrols with them — a patrol is
@@ -1233,9 +1250,9 @@ export const NYC_MAP_PACK: MapPack = {
     worldSize: point(2600, 3000),
     roadWidth: 11,
     shoulderWidth: 1.5,
-    roadSurfaces: nycGrid.roadSurfaces,
+    roadSurfaces: nycRoadNetwork.roadSurfaces,
     railLines: NYC_RAIL_LINES,
-    blocks: carveBlocksForRailCorridors(nycBlocks.concat([
+    blocks: carveBlocksForRailCorridors(carveBlocksForLinearCorridors(nycBlocks.concat([
       // The two strips beyond the outermost cross streets, which no row
       // generates because they have grid on one side only. The north one is
       // wider: Riverside Drive reaches W 96th, so there is more frontage up
@@ -1271,12 +1288,12 @@ export const NYC_MAP_PACK: MapPack = {
       // (z=-1080, the borough's south boundary) and bk56 (z=1080, its north
       // boundary) have no outer-side margin row, so the ground continues
       // hundreds of metres to the world edge past them. Two inward-facing
-      // shells close it, spanning the full built borough width: from
-      // Vernon's own pavement (791.4, matching the Queens riverbank park's
-      // own east edge below rather than the vern-cres column's generic
-      // 787 inset — the two would otherwise overlap by 4.4 m, caught by
-      // content.test.ts's block/park overlap sweep once the riverbank strip
-      // existed) out to the outer edge of the existing Steinway east-margin
+      // shells close it, spanning the built borough width from Vernon's own
+      // pavement. The north row remains flush with the riverbank park at
+      // 791.4; the south row starts at 791.4 after the park's reviewed one-
+      // metre ramp keep-out. Both avoid the vern-cres column's generic 787
+      // inset, which would overlap the park. From there they run to the outer
+      // edge of the existing Steinway east-margin
       // strip (1100+13+44=1157) — the same x-span the vern-cres/cres-stein/
       // stein-margin columns and their own east-margin row together already
       // cover. Depth and centre follow the same NYC_BLOCK_INSET_M/
@@ -1289,7 +1306,13 @@ export const NYC_MAP_PACK: MapPack = {
       { id: "nyc-block-bk56-outer", center: point(974.2, 1115), size: point(365.6, 44), streetEdges: ["-z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
     // The whole list carves around the borough freight corridor last, same
     // as Tokyo and Cairo — tests/railCorridors.test.ts re-proves the result.
-    ]), NYC_RAIL_LINES).blocks,
+    ]), nycRoadNetwork.roadSurfaces
+      .filter((surface) => surface.id.startsWith("nyc-queensview-"))
+      .map((surface) => ({
+        points: surface.centerline,
+        corridorHalfWidthM:
+          surface.widthM / 2 + (surface.parapetDepthM ?? 0) + 1.5,
+      })), { fragmentIdPrefix: "qv" }).blocks, NYC_RAIL_LINES).blocks,
     servicePoints: [
       // West 72nd is a wide two-way, and NYC is a paved city, so the lot must
       // clear the carriageway plus the full 3.4 m concrete sidewalk (not the
@@ -1410,7 +1433,7 @@ export const NYC_MAP_PACK: MapPack = {
       // docs/greenery.md already documents four other venues having shipped
       // into. Northbound's right is east, into the ordinary vern-cres
       // houses block instead.
-      { id: "nyc-v31", kind: "office", anchor: { laneId: "nyc-vern-n-qvb", distanceAlongM: 60 }, footprint: point(16, 14), name: "Bridge Plaza Offices" },
+      { id: "nyc-v31", kind: "office", anchor: { laneId: "nyc-vern-n-bk40", distanceAlongM: 400 }, footprint: point(16, 14), name: "Bridge Plaza Offices" },
     ],
     // Central Park's lake, on the eastern half so it never fouls the
     // promenade, and between two of the derived crossings so it never
@@ -1442,10 +1465,10 @@ export const NYC_MAP_PACK: MapPack = {
       // carriageways and sidewalks (Third centreline 440, Vernon 800).
       // `flowHeadingDeg: 0` is what makes this a river rather than a static
       // pond (crest streaks, chop, drifting tiles) — omitting it would make a
-      // giant still pond instead. `bridgePortalSurfaceIds` is what opens the
-      // shoreline for exactly Queensview and Harborline, and derives their
-      // parapet spans — every other metre of shoreline stays a solid collider
-      // for free.
+      // giant still pond instead. `bridgePortalSurfaceIds` opens the shoreline
+      // only for the at-grade Harborline crossing and derives its parapet
+      // spans. High Queensview deliberately passes over an unbroken shoreline
+      // collider; its shared elevated-road layer owns the deck barriers.
       //
       // The Queens shore is deliberately the flat one, at exactly
       // `nyc-queens-bank*`'s own west edge (726) — see the Hudson below for
@@ -1461,7 +1484,6 @@ export const NYC_MAP_PACK: MapPack = {
         color: "#24404d",
         flowHeadingDeg: 0,
         bridgePortalSurfaceIds: [
-          "nyc-queensview-bridge",
           "nyc-harborline-bridge",
         ],
         polygon: [
@@ -1577,15 +1599,13 @@ export const NYC_MAP_PACK: MapPack = {
       // lawn and water still opens to 17 m where it recedes — sightless from
       // a driving camera, which reads the wall end-on, and the price of not
       // ruling BOTH banks of one river straight. `parkStyle` pinned
-      // explicitly: the wider south/north segments' own long/short ratio
-      // (604/107.1=5.64) now falls under STRIP_ASPECT's 6, so
-      // `resolveParkStyle` would silently derive "urban_greensward" for
-      // just those two pieces while the untouched main segment
-      // (1640/107.1=15.3) stayed "riverside_strip" — one continuous
-      // riverside feature reading as three different styles purely because
-      // of where the bridge-clearance splits happen to fall. All three are
-      // the same real place; the pin keeps them the same style regardless.
-      { id: "nyc-esplanade-south", kind: "park", parkStyle: "riverside_strip", center: point(502.45, -1158), size: point(107.1, 604), color: "#4f7a3d" },
+      // explicitly: the short landing-apron fragment falls under
+      // STRIP_ASPECT's automatic threshold while the centre and north pieces
+      // remain long strips. All three are the same real place, so the pin
+      // prevents one continuous waterfront from changing planting style.
+      // The Third Avenue entry ramp owns the former north end of this strip;
+      // its open landing apron is intentional, not a missing park fragment.
+      { id: "nyc-esplanade-south", kind: "park", parkStyle: "riverside_strip", center: point(502.45, -1270), size: point(107.1, 380), color: "#4f7a3d" },
       { id: "nyc-esplanade", kind: "park", parkStyle: "riverside_strip", center: point(502.45, 0), size: point(107.1, 1640), color: "#4f7a3d" },
       { id: "nyc-esplanade-north", kind: "park", parkStyle: "riverside_strip", center: point(502.45, 1158), size: point(107.1, 604), color: "#4f7a3d" },
       // Queens East River bank strip (visual-gap plan Section 11.6, P0): the
@@ -1597,18 +1617,16 @@ export const NYC_MAP_PACK: MapPack = {
       // the water" — which is the wrong extreme on this bank: the water
       // reaches EAST to 744 here, so up to 18 m of this lawn was drawn under
       // the river and the strip's own park wall stood out in it (issue #389).
-      // The east edge is Vernon's own pavement, by the identical formula
-      // Section 11.8's own Third Ave number uses (440+5.5+3.4=448.9):
-      // 800-5.2-3.4=791.4. Split around the same two bridges at the same z
-      // the Manhattan esplanade already is — one physical bridge deck, so
-      // the same clearance applies on both banks. The two 36 m splits and
-      // the last 40 m at each end are the only stretches of this shore with
-      // no park behind them, which is why ruling the whole bank flat costs
-      // nothing. Long/short ratios (604/65.4, 1640/65.4) clear
-      // STRIP_ASPECT on their own, so `resolveParkStyle` derives
-      // "riverside_strip" without a hand-authored override, matching how
-      // the Manhattan esplanade blocks above rely on the same derivation.
-      { id: "nyc-queens-bank-south", kind: "park", center: point(758.7, -1158), size: point(65.4, 604), color: "#4f7a3d" },
+      // The centre/north east edge is Vernon's pavement, by the identical
+      // formula Section 11.8's Third Ave number uses (440+5.5+3.4=448.9):
+      // 800-5.2-3.4=791.4. The south fragment withdraws another metre to
+      // x=790.4 for the Vernon exit keep-out. Queensview's elevated ramps own
+      // that southern landing apron; Harborline keeps the ordinary shoreline
+      // break farther north. The remaining long, narrow fragments still let
+      // `resolveParkStyle` derive "riverside_strip" without an override.
+      // Vernon’s southbound exit descends through the former north end; the
+      // shorter park keeps its wall and planting outside the ramp envelope.
+      { id: "nyc-queens-bank-south", kind: "park", center: point(758.2, -1241), size: point(64.4, 438), color: "#4f7a3d" },
       { id: "nyc-queens-bank", kind: "park", center: point(758.7, 0), size: point(65.4, 1640), color: "#4f7a3d" },
       { id: "nyc-queens-bank-north", kind: "park", center: point(758.7, 1158), size: point(65.4, 604), color: "#4f7a3d" },
       // Queensbridge Green (visual-gap plan Section 11.4, P0): the borough's
@@ -1642,7 +1660,7 @@ export const NYC_MAP_PACK: MapPack = {
     ],
   },
   laneGraph: graph(
-    nycGrid.nodes,
+    nycRoadNetwork.nodes,
     nycLanes,
     [
       ...nycControls.map((entry) => entry.control),
@@ -1689,7 +1707,7 @@ export const NYC_MAP_PACK: MapPack = {
       // The borough (NYC east expansion, section 3.9) — one gate per bridge
       // deck so a crossing car is a common sight, not a coincidence, plus
       // Vernon and Steinway so the residential streets are not silent.
-      anchoredSpawn("nyc-car-25", "vehicle", "nyc-qvb-e-third", 180),
+      anchoredSpawn("nyc-car-25", "vehicle", "nyc-queensview-main-eb-outer-third-entry-vernon-exit", 80),
       anchoredSpawn("nyc-cab-26", "vehicle", "nyc-hlb-w-vern", 180),
       anchoredSpawn("nyc-van-27", "vehicle", "nyc-vern-n-bk44", 200),
       anchoredSpawn("nyc-car-28", "vehicle", "nyc-vern-s-bk52", 100),

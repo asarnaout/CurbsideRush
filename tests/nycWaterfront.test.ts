@@ -11,9 +11,9 @@ import type { StaticObstacle } from "../app/game/types";
  * the visual-gap plan's Section 11.7/11.8 water work. `content.test.ts`
  * already proves the *rendered* water polygons/esplanade seams close
  * correctly; this file proves the *collider* `simulationAdapter.ts` derives
- * from those same water bodies follows the visible shore, opens exactly at
- * the two real bridges and nowhere else, never crosses Riverside Drive, and
- * never duplicates the world-edge fence.
+ * from those same water bodies follows the visible shore, opens only at the
+ * at-grade Harborline portal, remains continuous beneath high Queensview,
+ * never crosses Riverside Drive, and never duplicates the world-edge fence.
  */
 
 const pack = getMapPack("nyc-upper-west-side");
@@ -85,22 +85,22 @@ describe("NYC waterfront shoreline collider", () => {
     }
   });
 
-  it("opens the East River shoreline at exactly its two real bridges, and nowhere on the Hudson", () => {
+  it("opens the East River shoreline only at at-grade Harborline, and nowhere on the Hudson", () => {
     // No `bridgePortalSurfaceIds` on nyc-hudson-river (nothing crosses it on
     // this map) -- its entire shore must stay a solid collider.
     expect(hudsonShore.some((o) => o.id.includes("-portal-"))).toBe(false);
     expect(portalRuns.every((o) => o.id.startsWith("nyc-east-river-")), "a portal exists on a non-East-River water body").toBe(
       true,
     );
-    // 2 bridges x 2 sides (left/right parapet) = 4, per nyc-east-river's own
-    // bridgePortalSurfaceIds: [queensview, harborline].
-    expect(eastRiverPortals.length).toBe(4);
-    expect(eastRiverPortals.some((o) => o.id.includes("nyc-queensview-bridge"))).toBe(true);
+    // A high deck passes over a continuous shoreline; only at-grade
+    // Harborline receives the two water-portal side colliders.
+    expect(eastRiverPortals.length).toBe(2);
+    expect(eastRiverPortals.some((o) => o.id.includes("nyc-queensview-bridge"))).toBe(false);
     expect(eastRiverPortals.some((o) => o.id.includes("nyc-harborline-bridge"))).toBe(true);
   });
 
-  it("leaves both East River bridge portals themselves unwalled", () => {
-    for (const bridgeId of ["nyc-queensview-bridge", "nyc-harborline-bridge"]) {
+  it("leaves the at-grade Harborline bridge portal itself unwalled", () => {
+    for (const bridgeId of ["nyc-harborline-bridge"]) {
       const surface = pack.geometry.roadSurfaces.find((candidate) => candidate.id === bridgeId)!;
       expect(surface, bridgeId).toBeTruthy();
       for (let index = 0; index < surface.centerline.length - 1; index += 1) {
@@ -121,6 +121,30 @@ describe("NYC waterfront shoreline collider", () => {
         }
       }
     }
+  });
+
+  it("keeps the shoreline continuous in plan beneath high Queensview", () => {
+    const bridge = pack.geometry.roadSurfaces.find(
+      (surface) => surface.id === "nyc-queensview-bridge",
+    );
+    expect(bridge).toBeTruthy();
+    expect(
+      bridge!.centerline.some((point) => (point.elevationM ?? 0) >= 10),
+    ).toBe(true);
+    const runsAcrossQueensviewLatitude = eastRiverShore.flatMap((run) => {
+      if (Math.abs(run.uz) < 1e-6) return [];
+      const alongM = (-840 - run.z) / run.uz;
+      if (Math.abs(alongM) > run.halfU + 0.01) return [];
+      return [{ run, x: run.x + run.ux * alongM }];
+    });
+    expect(
+      runsAcrossQueensviewLatitude.filter(({ x }) => x < 650),
+      "Manhattan shoreline continues beneath Queensview",
+    ).toHaveLength(1);
+    expect(
+      runsAcrossQueensviewLatitude.filter(({ x }) => x > 650),
+      "Queens shoreline continues beneath Queensview",
+    ).toHaveLength(1);
   });
 
   it("never crosses Riverside Drive with the Hudson shore collider", () => {
@@ -168,11 +192,11 @@ describe("NYC waterfront shoreline collider", () => {
     // the water drawing over both lawns and left both park walls on grass.
     const byTag = new Map<string, number>();
     for (const o of obstacles) byTag.set(o.tag, (byTag.get(o.tag) ?? 0) + 1);
-    expect(byTag.get("shoreline")).toBe(43);
+    expect(byTag.get("shoreline")).toBe(39);
     expect(byTag.get("worldEdge")).toBe(4);
-    expect(shoreRuns.length).toBe(39);
-    expect(portalRuns.length).toBe(4);
+    expect(shoreRuns.length).toBe(37);
+    expect(portalRuns.length).toBe(2);
     expect(hudsonShore.length).toBe(14);
-    expect(eastRiverShore.length).toBe(14);
+    expect(eastRiverShore.length).toBe(12);
   });
 });

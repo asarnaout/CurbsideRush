@@ -107,7 +107,12 @@ describe("ambient traffic trace characterization", () => {
       // re-times the NPC holds at all seven crossings inside this trace.
       // -> 745a72a6 (patrol-density reduction): the fixed fleet remains 32
       // vehicles, but only three of its former six patrol identities remain.
-      "free-us": "745a72a6",
+      // -> be568faa (Queensview grade separation): the former at-grade lane
+      // becomes a four-lane bridge plus a two-way carrier and eight access
+      // movements, its authored bridge vehicle moves to the real deck, and
+      // the obsolete freight level-crossing signal disappears. Those legal
+      // lane, portal, route, gate, and signal changes all belong in this hash.
+      "free-us": "be568faa",
       // Moves on any sim-visible London content change: the south-west
       // expansion (fourteen streets, three signals, both turning loops gone),
       // then the river (both embankments, the south bank, three bridges and

@@ -71,6 +71,27 @@ const PAIRED_BRANCH_JOIN: readonly ElevatedRoadGeometrySurface[] = [
   },
 ];
 
+const ONE_SIDED_CARRIER_JOIN: readonly ElevatedRoadGeometrySurface[] = [
+  {
+    id: "one-sided-carrier",
+    widthM: 14,
+    centerline: [point(-60, 0), point(0, 0), point(60, 0)],
+  },
+  {
+    id: "one-sided-branch",
+    widthM: 5.8,
+    centerline: [
+      point(-50, 18),
+      point(-35, 13),
+      point(-20, 8),
+      point(-8, 5.25),
+      // A physical-right lane mouth belongs on the carrier shoulder, not on
+      // its centreline. It is nevertheless inside the 14 m paved footprint.
+      point(0, 5.25),
+    ],
+  },
+];
+
 const pointToSegmentDistanceM = (
   candidate: { readonly x: number; readonly z: number },
   start: { readonly x: number; readonly z: number },
@@ -405,6 +426,93 @@ describe("shared elevated-road junction planner", () => {
         ),
       ).toBeLessThan(0.01);
     }
+  });
+
+  it("opens an offset shoulder branch without removing the opposite carrier guard", () => {
+    const [envelope] = elevatedRoadJunctionEnvelopes(
+      ONE_SIDED_CARRIER_JOIN,
+    );
+    expect(envelope).toBeDefined();
+    expect(envelope.surfaceIds).toEqual([
+      "one-sided-branch",
+      "one-sided-carrier",
+    ]);
+    expect(envelope.pivot.x).toBeCloseTo(0, 9);
+    expect(envelope.pivot.z).toBeCloseTo(0, 9);
+
+    const branch = ONE_SIDED_CARRIER_JOIN[1];
+    const branchEndpoint = branch.centerline.at(-1)!;
+    const branchArm = envelope.arms.find(
+      (arm) => arm.surfaceId === branch.id,
+    )!;
+    expect(branchArm).toBeDefined();
+    expect(
+      branchArm.sections.some(
+        (section) => pointToSegmentDistanceM(branchEndpoint, section, section) < 0.01,
+      ),
+      "the collar reaches the real shoulder-aligned branch endpoint",
+    ).toBe(true);
+    expect(
+      branchArm.coverages.some(
+        (coverage) =>
+          coverage.surfaceId === branch.id && coverage.planLengthM > 0,
+      ),
+      "the collar continues onto authored branch pavement after its virtual cross-deck chord",
+    ).toBe(true);
+    expect(
+      pointInsideRing({ x: 0, z: 2.6 }, envelope.asphaltBoundary),
+      "shared asphalt fills the carrier-to-branch throat",
+    ).toBe(true);
+
+    const barrierBoundaryEdges = ringSegments(envelope.barrierBoundary);
+    expect(
+      barrierBoundaryEdges.some((edge) =>
+        isTransverseArmMouthSegment(
+          edge.start,
+          edge.end,
+          branchArm,
+          BARRIER_LATERAL_ADDITION_M,
+        ),
+      ),
+      "the polygon has a detectable branch mouth to open",
+    ).toBe(true);
+    expect(
+      envelope.barrierGuardRuns.some((run) =>
+        isTransverseArmMouthSegment(
+          run.start,
+          run.end,
+          branchArm,
+          BARRIER_LATERAL_ADDITION_M,
+        ),
+      ),
+      "no parapet spans the branch mouth",
+    ).toBe(false);
+    expect(
+      envelope.deckGuardRuns.some((run) =>
+        isTransverseArmMouthSegment(
+          run.start,
+          run.end,
+          branchArm,
+          ELEVATED_ROAD_DECK_OVERHANG_M,
+        ),
+      ),
+      "no fascia spans the branch mouth",
+    ).toBe(false);
+
+    const oppositeBoundaryPoint = envelope.barrierBoundary
+      .filter((candidate) => candidate.z < 0)
+      .reduce((nearest, candidate) =>
+        Math.abs(candidate.x) < Math.abs(nearest.x) ? candidate : nearest,
+      );
+    expect(oppositeBoundaryPoint.z).toBeLessThan(-7);
+    expect(
+      Math.min(
+        ...envelope.barrierGuardRuns.map((run) =>
+          pointToSegmentDistanceM(oppositeBoundaryPoint, run.start, run.end),
+        ),
+      ),
+      "the carrier's median/opposite edge remains guarded at the join station",
+    ).toBeLessThan(0.01);
   });
 
   it("derives gap-free collider chunks from the same guard runs", () => {

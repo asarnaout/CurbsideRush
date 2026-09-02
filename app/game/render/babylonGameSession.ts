@@ -317,6 +317,7 @@ import {
   curateCairoRegulatorySigns,
   curateCairoSpeedLimitSigns,
 } from "../cairoRoadSigns";
+import { curateNycSpeedLimitSigns } from "../nycRoadSigns";
 import {
   splitMarkingAtCrossings,
   type MarkingPoint,
@@ -6270,6 +6271,8 @@ export class BabylonGameSession {
     const speedLimitSigns =
       mapPack.id === "cairo-central-nile"
         ? curateCairoSpeedLimitSigns(rawSpeedLimitSigns)
+        : mapPack.id === "nyc-upper-west-side"
+          ? curateNycSpeedLimitSigns(rawSpeedLimitSigns)
         : rawSpeedLimitSigns;
     const londonLandmarksCtx = {
       scene,

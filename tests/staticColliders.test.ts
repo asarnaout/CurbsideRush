@@ -577,10 +577,11 @@ describe("the drivable world stays open", () => {
     expect(failures.slice(0, 25)).toEqual([]);
   });
 
-  it("keeps every Cairo and Tokyo bridge vehicle envelope clear of every solid obstacle", () => {
+  it("keeps every Cairo, Tokyo and NYC elevated-road vehicle envelope clear of every solid obstacle", () => {
     const bridgeWorlds = [
       { mapId: "cairo-central-nile", roadIdToken: "sixth-october" },
       { mapId: "tokyo-setagaya", roadIdToken: "sakuragawa-urban-expressway" },
+      { mapId: "nyc-upper-west-side", roadIdToken: "nyc-queensview" },
     ] as const;
     // Sweep the full playable width, not only each lane centre. This includes
     // the front and rear discs of the largest player capsule and the complete

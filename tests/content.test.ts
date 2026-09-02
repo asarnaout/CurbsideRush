@@ -516,30 +516,24 @@ describe("SideSwap content", () => {
   it("shells the Queens outer bank streets bk40/bk56 so the ground stops reading to the world edge (plan Section 11.5)", () => {
     const nyc = MAP_PACKS.find((m) => m.id === "nyc-upper-west-side");
     expect(nyc).toBeDefined();
-    // The rail feature's corridor carver splits each authored 365.6 m shell
-    // into the two fragments flanking the borough freight lead at x=1030
-    // (corridor half-width 4.5 m + the carver's 1.2 m clearance) — the shell
-    // must NOT cross the tracks. Everything Section 11.5 pinned still holds
-    // per fragment; the pair together still spans park edge to world margin
-    // minus only the legitimate rail gap.
+    // The south shell is first carved around Queensview's Q40 ramp, then both
+    // rows are split around the borough freight lead at x=1030 (corridor
+    // half-width 4.5 m + the carver's 1.2 m clearance). Those are deliberate
+    // holes for real infrastructure, never unclaimed grey ground beneath it.
     const fragments = (suffix: string) =>
       nyc!.geometry.blocks
-        .filter((b) => b.id.startsWith(`nyc-block-${suffix}-outer-rw`))
+        .filter((b) => b.id.startsWith(`nyc-block-${suffix}-outer`))
         .sort((a, b) => a.center.x - b.center.x);
     const south = fragments("bk40");
     const north = fragments("bk56");
-    expect(south).toHaveLength(2);
+    expect(south).toHaveLength(3);
     expect(north).toHaveLength(2);
-    for (const [index, block] of [...south, ...north].entries()) {
+    for (const block of [...south, ...north]) {
       expect(block.size.z).toBe(44);
       expect(block.buildingSet).toBe("nyc-house");
       // A map-edge shell, not real frontage: single inward-facing edge, and
       // withdrawn from gig-pool probing entirely (plan Section 9.1).
       expect(block.addressable).toBe(false);
-      const west = index % 2 === 0;
-      // Fragment edges hug the rail gap: 1030 +/- 5.7.
-      if (west) expect(block.center.x + block.size.x / 2).toBeCloseTo(1024.3, 1);
-      else expect(block.center.x - block.size.x / 2).toBeCloseTo(1035.7, 1);
     }
     for (const block of south) {
       expect(block.center.z).toBe(-1115);
@@ -549,20 +543,43 @@ describe("SideSwap content", () => {
       expect(block.center.z).toBe(1115);
       expect(block.streetEdges).toEqual(["-z"]);
     }
+    for (const row of [south, north]) {
+      const westRailFragment = row
+        .filter((block) => block.center.x + block.size.x / 2 < 1030)
+        .at(-1)!;
+      const eastRailFragment = row.find(
+        (block) => block.center.x - block.size.x / 2 > 1030,
+      )!;
+      expect(
+        westRailFragment.center.x + westRailFragment.size.x / 2,
+      ).toBeCloseTo(1024.3, 1);
+      expect(
+        eastRailFragment.center.x - eastRailFragment.size.x / 2,
+      ).toBeCloseTo(1035.7, 1);
+    }
     // Clear of the East River's own shore (x up to 726) on the west side,
-    // and the west fragment's west edge meets the Queens riverbank park's own
-    // east edge exactly (Section 11.6) rather than the vern-cres column's
-    // generic 787 inset, which would overlap it by 4.4 m.
+    // and the west fragment meets the corresponding Queens riverbank park.
+    // The south row retains a reviewed one-metre service/planting setback for
+    // the Vernon exit keep-out; the unconflicted north row remains flush.
     const river = nyc!.geometry.waterBodies!.find((w) => w.id === "nyc-east-river")!;
     const riverMaxX = Math.max(...river.polygon.map((p) => p.x));
-    const bank = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-south")!;
+    const southBank = nyc!.geometry.landmarks.find(
+      (landmark) => landmark.id === "nyc-queens-bank-south",
+    )!;
+    const northBank = nyc!.geometry.landmarks.find(
+      (landmark) => landmark.id === "nyc-queens-bank-north",
+    )!;
     for (const block of [south[0], north[0]]) {
       expect(block.center.x - block.size.x / 2).toBeGreaterThan(riverMaxX);
-      expect(block.center.x - block.size.x / 2).toBeCloseTo(
-        bank.center.x + bank.size.x / 2,
-        6,
-      );
     }
+    expect(
+      south[0].center.x - south[0].size.x / 2 -
+        (southBank.center.x + southBank.size.x / 2),
+    ).toBeCloseTo(1, 6);
+    expect(north[0].center.x - north[0].size.x / 2).toBeCloseTo(
+      northBank.center.x + northBank.size.x / 2,
+      6,
+    );
   });
 
   it("dresses the Queens East River bank strip instead of leaving it grey ground (plan Section 11.6)", () => {
@@ -571,16 +588,21 @@ describe("SideSwap content", () => {
     const south = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-south")!;
     const main = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank")!;
     const north = nyc!.geometry.landmarks.find((l) => l.id === "nyc-queens-bank-north")!;
-    for (const park of [south, main, north]) {
+    for (const park of [main, north]) {
       expect(park, park?.id).toBeDefined();
       expect(park.center.x).toBe(758.7);
       expect(park.size.x).toBe(65.4);
     }
-    // Split around both bridges, matching the Manhattan esplanade's own
-    // z-splits exactly -- one physical bridge deck, same clearance on both
-    // banks.
-    expect(south.center.z).toBe(-1158);
-    expect(south.size.z).toBe(604);
+    expect(south).toBeDefined();
+    expect(south.center.x).toBe(758.2);
+    expect(south.size.x).toBe(64.4);
+    // Vernon’s southbound exit now descends through the south strip's former
+    // north end. The deliberate 440 m remnant keeps its park wall and planting
+    // outside the ramp envelope. Its one-metre east setback and two-metre
+    // north setback are the smallest reviewed keep-out; the unconflicted
+    // centre/north spans stay put.
+    expect(south.center.z).toBe(-1241);
+    expect(south.size.z).toBe(438);
     expect(main.center.z).toBe(0);
     expect(main.size.z).toBe(1640);
     expect(north.center.z).toBe(1158);

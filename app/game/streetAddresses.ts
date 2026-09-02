@@ -249,6 +249,11 @@ interface StreetProfile {
    * a cross street covers one short block per number run, an avenue covers
    * fourteen. */
   readonly numbersPerM: number;
+  /** False when a named, numbered corridor is intentionally expected to yield
+   * no doors in the current map. Generation still walks it so declaring that
+   * zero-output expectation does not itself reseed every later street's shared
+   * jitter. */
+  readonly expectsAddresses?: boolean;
 }
 
 /**
@@ -355,7 +360,10 @@ const STREET_PROFILES: Record<string, StreetProfile> = {
   "nyc-vernon": { ...AVENUE, baseNumber: 4000 },
   "nyc-crescent": { ...AVENUE, baseNumber: 4050 },
   "nyc-steinway": { ...AVENUE, baseNumber: 4100 },
-  "nyc-bank-40": BOROUGH_CROSS_STREET,
+  // Queensview's paired terminal ramps and their clearance carve consume both
+  // usable kerbs. Keep the numbering profile in the deterministic walk, but do
+  // not advertise 40th Avenue as a street that currently produces doors.
+  "nyc-bank-40": { ...BOROUGH_CROSS_STREET, expectsAddresses: false },
   "nyc-bank-44": BOROUGH_CROSS_STREET,
   "nyc-bank-48": BOROUGH_CROSS_STREET,
   "nyc-bank-52": BOROUGH_CROSS_STREET,
@@ -577,8 +585,9 @@ export function addressableStreetNames(
   if (!roadNames) return [];
   return [
     ...new Set(
-      Object.keys(STREET_PROFILES)
-        .map((roadId) => roadNames[roadId])
+      Object.entries(STREET_PROFILES)
+        .filter(([, profile]) => profile.expectsAddresses !== false)
+        .map(([roadId]) => roadNames[roadId])
         .filter((name): name is string => Boolean(name)),
     ),
   ];

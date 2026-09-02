@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAP_PACKS, getCountryProfile } from "../app/game/content";
 import type { LaneSegment, MapPack, RoadSurface } from "../app/game/types";
+import { NYC_QUEENSVIEW_ACCESS_SITES } from "../app/game/cities/nycElevatedRoadNetwork";
 
 /**
  * Invariants for "would a real driver read this road the way we mean it?".
@@ -128,7 +129,21 @@ describe("road markings read the way a local driver expects", () => {
       if (!lanes.length) continue;
       const paint = surface.markings.map((m) => `${m.style}/${m.color}`);
       if (twoWay) {
-        expect(paint, surface.id).toEqual(["centre_solid/yellow"]);
+        const byId = new Map(lanes.map((lane) => [lane.id, lane]));
+        const dividedDirections = new Set(
+          lanes
+            .filter((lane) =>
+              (lane.adjacentLaneIds ?? []).some((adjacentId) => {
+                const adjacent = byId.get(adjacentId);
+                return adjacent && directionsOf([lane, adjacent]).size === 1;
+              }),
+            )
+            .flatMap((lane) => [...directionsOf([lane])]),
+        );
+        expect(paint, surface.id).toEqual([
+          "centre_solid/yellow",
+          ...[...dividedDirections].map(() => "lane_dashed/white"),
+        ]);
         twoWayChecked += 1;
         continue;
       }
@@ -448,16 +463,44 @@ describe("NYC controls the junctions a driver expects to be controlled", () => {
         .filter((control) => control.type === "signal" || control.type === "stop")
         .map((control) => `${control.position.x},${control.position.z}`),
     );
+    const freeFlowMergeNodeIds = new Set([
+      ...NYC_QUEENSVIEW_ACCESS_SITES.map((site) => site.exit.mouthNodeId),
+      ...NYC_QUEENSVIEW_ACCESS_SITES.filter(
+        (site) => site.id === "manhattan-third" || site.id === "queens-vernon",
+      ).map((site) => site.entry.highNodeId),
+    ]);
+    const observedFreeFlowMerges = new Set<string>();
     for (const node of nyc.laneGraph.nodes) {
       const arrivals = inbound.get(node.id) ?? [];
       const roads = new Set(arrivals.map((lane) => lane.roadId));
       if (roads.size < 2) continue;
+      const headings = arrivals.map((lane) => {
+        const from = lane.centerline.at(-2)!;
+        const to = lane.centerline.at(-1)!;
+        return headingOf(from, to);
+      });
+      const sameHeading = headings.every(
+        (heading) => Math.cos(heading - headings[0]) > 0.995,
+      );
+      if (sameHeading) {
+        expect(
+          freeFlowMergeNodeIds.has(node.id),
+          `${node.id} is an unreviewed same-heading merge`,
+        ).toBe(true);
+        expect(
+          controlledPositions.has(`${node.position.x},${node.position.z}`),
+          `${node.id} must stay free-flow`,
+        ).toBe(false);
+        observedFreeFlowMerges.add(node.id);
+        continue;
+      }
       controlledNodes += 1;
       expect(
         controlledPositions.has(`${node.position.x},${node.position.z}`),
         `${node.id} has two arriving roads but neither a signal nor a stop`,
       ).toBe(true);
     }
+    expect(observedFreeFlowMerges).toEqual(freeFlowMergeNodeIds);
     expect(controlledNodes, "NYC crossings with two arriving roads").toBeGreaterThanOrEqual(11);
   });
 });

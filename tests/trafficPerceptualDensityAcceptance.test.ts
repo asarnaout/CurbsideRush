@@ -401,16 +401,20 @@ const COMMITTED_REPRESENTATIVE_ANCHORS: Readonly<
       expectedInnerLaneKm: 3.398_047_727_601_238_4,
     },
     median: {
-      laneId: "nyc-96-w-bway",
-      distanceAlongM: 150,
-      expectedFogLaneKm: 8.635_962_648_997_902,
-      expectedInnerLaneKm: 3.596_347_496_358_948,
+      // Queensview replaces one at-grade crossing with its bridge, carrier,
+      // and four paired access sites. Re-anchor the exact median of that
+      // larger legal-capacity population instead of retaining the old road's
+      // now-below-median sample.
+      laneId: "nyc-e86-e-fifth",
+      distanceAlongM: 50,
+      expectedFogLaneKm: 8.729_821_417,
+      expectedInnerLaneKm: 2.394_736_700,
     },
     dense: {
-      laneId: "nyc-bway-s-75",
-      distanceAlongM: 150,
-      expectedFogLaneKm: 10.614_048_398_569_059,
-      expectedInnerLaneKm: 3.715_129_481_914_209_6,
+      laneId: "nyc-col-s-2-68",
+      distanceAlongM: 50,
+      expectedFogLaneKm: 10.586_639_366,
+      expectedInnerLaneKm: 3.698_486_159,
     },
   },
   "tokyo-setagaya": {

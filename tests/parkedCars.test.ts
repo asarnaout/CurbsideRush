@@ -38,7 +38,10 @@ describe("parkedCarsForMap", () => {
     );
 
     expect(counts).toEqual({
-      "nyc-upper-west-side": 467,
+      // Fourteen formerly generated NYC cars occupied the new Queensview
+      // deck/ramp clearance envelope. The shared headroom query rejects them
+      // before render, just as it does beneath Cairo and Tokyo's low collars.
+      "nyc-upper-west-side": 453,
       "london-south-kensington": 182,
       // Nine formerly generated Tokyo cars occupied frontage now reserved
       // by the complete Sakuragawa deck/ramp/parapet envelope. Rejecting them

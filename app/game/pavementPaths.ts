@@ -83,6 +83,8 @@ const MAX_MITER_RATIO = 3.25;
 /** Corners tighter than this get a bare point instead of a fillet arc. */
 const MIN_FILLET_WEDGE_RAD = (30 * Math.PI) / 180;
 const MIN_EDGE_LENGTH_M = 0.05;
+/** A merge cut can leave a one-metre rail tail attached to a useful circuit. */
+const MIN_DANGLING_RUN_M = 1.2;
 /** Never spawn a crowd on a clipped sliver left between merge-lane cuts. */
 const MIN_WALKABLE_COMPONENT_M = 40;
 const NODE_MERGE_EPSILON_M = 0.05;
@@ -1038,8 +1040,15 @@ export function buildPavementGraph(
   }
 
   // Filtering the inside of a shallow merge can strand centimetre- or
-  // metre-long rail crumbs between two cuts. They are not useful routes and
-  // make poor spawn candidates, so keep only substantial connected pieces.
+  // metre-long rail crumbs between two cuts. A crumb may still be attached to
+  // a long circuit, so component length alone cannot reject it: first remove a
+  // short dangling run, then discard wholly insubstantial components.
+  const routeEdges = edges.filter(
+    (edge) =>
+      edge.kind !== "run" ||
+      edge.lengthM >= MIN_DANGLING_RUN_M ||
+      (nodes[edge.a].edgeIds.length > 1 && nodes[edge.b].edgeIds.length > 1),
+  );
   const parent = nodes.map((_, index) => index);
   const find = (id: number): number => {
     let cursor = id;
@@ -1049,16 +1058,16 @@ export function buildPavementGraph(
     }
     return cursor;
   };
-  for (const edge of edges) parent[find(edge.a)] = find(edge.b);
+  for (const edge of routeEdges) parent[find(edge.a)] = find(edge.b);
   const componentLengthM = new Map<number, number>();
-  for (const edge of edges) {
+  for (const edge of routeEdges) {
     const root = find(edge.a);
     componentLengthM.set(
       root,
       (componentLengthM.get(root) ?? 0) + edge.lengthM,
     );
   }
-  const keptEdges = edges.filter(
+  const keptEdges = routeEdges.filter(
     (edge) =>
       (componentLengthM.get(find(edge.a)) ?? 0) > MIN_WALKABLE_COMPONENT_M,
   );

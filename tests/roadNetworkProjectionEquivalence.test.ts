@@ -4,6 +4,11 @@ import {
   CAIRO_MAP_PACK,
 } from "../app/game/cities/cairo";
 import {
+  NYC_FREE_DRIVE,
+  NYC_MAP_PACK,
+} from "../app/game/cities/nyc";
+import { NYC_QUEENSVIEW_DECK_ELEVATION_M } from "../app/game/cities/nycElevatedRoadNetwork";
+import {
   type LaneProjection,
   type NormalizedLane,
   RoadNetwork,
@@ -32,6 +37,20 @@ const cairoConfig = buildSimulationCoreConfig({
 const cairoSpawn = cairoConfig.spawn!;
 const cairoRoadNetwork = new RoadNetwork(cairoConfig.lanes ?? [], [], []);
 const cairoOracle = new LegacyRoadProjectionOracle(cairoRoadNetwork.lanes);
+const nycScenario = buildFreeDriveScenario(NYC_FREE_DRIVE);
+const nycConfig = buildSimulationCoreConfig({
+  scenario: nycScenario,
+  mapPack: NYC_MAP_PACK,
+  trafficSide: "right",
+  speedUnit: "mph",
+  buildingLayout: {
+    mapId: NYC_MAP_PACK.id,
+    trafficSeed: nycScenario.trafficSeed,
+    buildings: [],
+  },
+});
+const nycRoadNetwork = new RoadNetwork(nycConfig.lanes ?? [], [], []);
+const nycOracle = new LegacyRoadProjectionOracle(nycRoadNetwork.lanes);
 
 function projectionDifference(
   label: string,
@@ -342,6 +361,76 @@ describe("RoadNetwork projection hot-path equivalence", () => {
       expect(directedSeams).toBe(814);
     },
   );
+
+  it("keeps NYC ground avenues and the Queensview deck on distinct projection levels", () => {
+    const crossings = [
+      { label: "Third Avenue", x: 440, groundRoadId: "nyc-third" },
+      { label: "Vernon Boulevard", x: 800, groundRoadId: "nyc-vernon" },
+    ] as const;
+
+    for (const crossing of crossings) {
+      const groundPreference: RoadProjectionPreference = {
+        heading: 0,
+        preferredLaneId: "missing-ground-prior-lane",
+        preferredElevationM: 0,
+      };
+      const expectedGround = nycOracle.projectToRoad(
+        crossing.x,
+        -840,
+        groundPreference,
+      );
+      const actualGround = nycRoadNetwork.projectToRoad(
+        crossing.x,
+        -840,
+        groundPreference,
+      );
+      expect(
+        projectionDifference(
+          `${crossing.label}/ground`,
+          expectedGround,
+          actualGround,
+        ),
+      ).toBeNull();
+      expect(actualGround?.lane.roadId, `${crossing.label} ground road`).toBe(
+        crossing.groundRoadId,
+      );
+      expect(actualGround?.elevationM, `${crossing.label} ground height`).toBe(0);
+
+      const deckPreference: RoadProjectionPreference = {
+        heading: Math.PI / 2,
+        preferredLaneId: "missing-deck-prior-lane",
+        preferredElevationM: NYC_QUEENSVIEW_DECK_ELEVATION_M,
+        allowUnconnectedElevationCapture: true,
+      };
+      const expectedDeck = nycOracle.projectToRoad(
+        crossing.x,
+        -840,
+        deckPreference,
+      );
+      const actualDeck = nycRoadNetwork.projectToRoad(
+        crossing.x,
+        -840,
+        deckPreference,
+      );
+      expect(
+        projectionDifference(
+          `${crossing.label}/deck`,
+          expectedDeck,
+          actualDeck,
+        ),
+      ).toBeNull();
+      expect(actualDeck?.lane.roadId, `${crossing.label} raised road`).toBe(
+        "nyc-queensview-bridge",
+      );
+      expect(actualDeck?.elevationM, `${crossing.label} deck height`).toBe(
+        NYC_QUEENSVIEW_DECK_ELEVATION_M,
+      );
+      expect(
+        (actualDeck?.elevationM ?? 0) - (actualGround?.elevationM ?? 0),
+        `${crossing.label} level separation`,
+      ).toBeGreaterThan(ELEVATED_ROAD_STRUCTURE_THRESHOLD_M);
+    }
+  });
 
   it("records the compatible-first scan reduction and the exact raised fallback", () => {
     const totalSegments = cairoRoadNetwork.lanes.reduce(

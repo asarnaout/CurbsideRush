@@ -135,6 +135,15 @@ type ClippingGeom = ClippingPolygon | ClippingMultiPolygon;
 interface JunctionOccurrence {
   readonly surface: ElevatedRoadJunctionSurface;
   readonly nodeIndex: number;
+  /**
+   * Optional virtual-to-authored segment mapping. A lateral branch can land
+   * inside a wide carrier without sharing its centreline node. Junction
+   * geometry inserts one collar-only cross-deck chord in that case; `null`
+   * keeps that synthetic chord from trimming an unrelated authored segment.
+   */
+  readonly coverageSegmentIndices?: readonly (number | null)[];
+  /** Number of nodes to skip when measuring the real branch departure. */
+  readonly directionNodeOffset?: number;
 }
 
 interface JunctionCluster {
@@ -288,6 +297,108 @@ const collectClusters = (
       cluster.occurrences.push({ surface, nodeIndex });
     }
   }
+
+  // A motorway branch correctly joins the outer travel lane, not the
+  // carrier centreline. When its endpoint lies inside a wider carrier at one
+  // of that carrier's authored knots, build a collar-only virtual chord from
+  // the carrier pivot to the real branch endpoint. The real road/lane keeps
+  // its physical-right alignment; only the shared junction envelope sees the
+  // short cross-deck arm needed to replace the carrier parapet with a fitted
+  // one-sided gore. Requiring an authored carrier knot keeps coverage mapping
+  // exact and avoids inventing topology at an arbitrary crossing.
+  for (const branch of surfaces) {
+    if (!isElevatedRoadSurface(branch) || branch.centerline.length < 2) {
+      continue;
+    }
+    for (const endpointIndex of [0, branch.centerline.length - 1]) {
+      const endpoint = branch.centerline[endpointIndex];
+      if ((endpoint.elevationM ?? 0) < minimumElevationM) continue;
+      const alreadyJoined = clusters.some((cluster) =>
+        cluster.occurrences.some(
+          (occurrence) =>
+            occurrence.surface.id === branch.id &&
+            occurrence.nodeIndex === endpointIndex &&
+            cluster.occurrences.some(
+              (other) => other.surface.id !== branch.id,
+            ),
+        ),
+      );
+      if (alreadyJoined) continue;
+
+      let best:
+        | {
+            readonly carrier: ElevatedRoadJunctionSurface;
+            readonly carrierNodeIndex: number;
+            readonly point: GameCanvasPoint;
+            readonly distanceM: number;
+          }
+        | undefined;
+      for (const carrier of surfaces) {
+        if (
+          carrier.id === branch.id ||
+          !isElevatedRoadSurface(carrier) ||
+          carrier.widthM <= branch.widthM + POINT_EPSILON_M
+        ) {
+          continue;
+        }
+        for (
+          let carrierNodeIndex = 0;
+          carrierNodeIndex < carrier.centerline.length;
+          carrierNodeIndex += 1
+        ) {
+          const point = carrier.centerline[carrierNodeIndex];
+          const elevationDifferenceM = Math.abs(
+            (point.elevationM ?? 0) - (endpoint.elevationM ?? 0),
+          );
+          if (elevationDifferenceM > POINT_EPSILON_M) continue;
+          const endpointDistanceM = distanceM(point, endpoint);
+          if (
+            endpointDistanceM <= POINT_EPSILON_M ||
+            endpointDistanceM > carrier.widthM / 2 + POINT_EPSILON_M ||
+            (best && endpointDistanceM >= best.distanceM)
+          ) {
+            continue;
+          }
+          best = {
+            carrier,
+            carrierNodeIndex,
+            point,
+            distanceM: endpointDistanceM,
+          };
+        }
+      }
+      if (!best) continue;
+
+      const cluster = clusters.find((candidate) =>
+        samePoint(candidate.point, best.point),
+      );
+      if (!cluster) continue;
+      const joinsAtStart = endpointIndex === 0;
+      const virtualSurface: ElevatedRoadJunctionSurface = {
+        ...branch,
+        centerline: joinsAtStart
+          ? [best.point, ...branch.centerline]
+          : [...branch.centerline, best.point],
+      };
+      const authoredSegmentIndices = Array.from(
+        { length: branch.centerline.length - 1 },
+        (_, segmentIndex) => segmentIndex,
+      );
+      cluster.occurrences.push({
+        surface: virtualSurface,
+        nodeIndex: joinsAtStart ? 0 : virtualSurface.centerline.length - 1,
+        coverageSegmentIndices: joinsAtStart
+          ? [null, ...authoredSegmentIndices]
+          : [...authoredSegmentIndices, null],
+        // The first chord runs laterally across the carrier solely to build
+        // the collar. Merge alignment must use the first real branch chord;
+        // otherwise that perpendicular shim prevents the carrier guard from
+        // being trimmed far enough along a shallow ramp mouth.
+        directionNodeOffset: 2,
+      });
+    }
+  }
+
   return clusters.filter((cluster) => {
     const surfaceIds = new Set(
       cluster.occurrences.map((occurrence) => occurrence.surface.id),
@@ -529,12 +640,17 @@ const buildArm = (
         halfWidthM: Math.max(positiveHalfWidthM, negativeHalfWidthM),
       });
     }
-    coverages.push({
-      surfaceId: surface.id,
-      segmentIndex,
-      junctionEnd: step > 0 ? "start" : "end",
-      planLengthM: usedM,
-    });
+    const coverageSegmentIndex = occurrence.coverageSegmentIndices
+      ? occurrence.coverageSegmentIndices[segmentIndex]
+      : segmentIndex;
+    if (coverageSegmentIndex !== null && coverageSegmentIndex !== undefined) {
+      coverages.push({
+        surfaceId: surface.id,
+        segmentIndex: coverageSegmentIndex,
+        junctionEnd: step > 0 ? "start" : "end",
+        planLengthM: usedM,
+      });
+    }
     stationM += usedM;
   }
   if (sections.length < 2) return null;
@@ -1330,6 +1446,24 @@ const halfDistanceToNextJunctionM = (
   return lengthM / 2;
 };
 
+const occurrenceDirectionVector = (
+  occurrence: JunctionOccurrence,
+  step: -1 | 1,
+): { readonly dx: number; readonly dz: number; readonly lengthM: number } | undefined => {
+  const offset = occurrence.directionNodeOffset ?? 1;
+  const origin = occurrence.surface.centerline[
+    occurrence.nodeIndex + step * Math.max(0, offset - 1)
+  ];
+  const point = occurrence.surface.centerline[
+    occurrence.nodeIndex + step * offset
+  ];
+  if (!origin || !point) return undefined;
+  const dx = point.x - origin.x;
+  const dz = point.z - origin.z;
+  const lengthM = Math.hypot(dx, dz);
+  return lengthM > 0.001 ? { dx, dz, lengthM } : undefined;
+};
+
 /** Build all same-level elevated collars for one immutable surface collection. */
 export function buildElevatedRoadJunctionEnvelopes(
   surfaces: readonly ElevatedRoadJunctionSurface[],
@@ -1405,13 +1539,10 @@ export function buildElevatedRoadJunctionEnvelopes(
           );
           requireReach(occurrence, step, separationReachM);
 
-          const neighbour =
-            occurrence.surface.centerline[occurrence.nodeIndex + step];
-          if (!neighbour) continue;
-          const branchDx = neighbour.x - cluster.point.x;
-          const branchDz = neighbour.z - cluster.point.z;
-          const branchLengthM = Math.hypot(branchDx, branchDz);
-          if (branchLengthM < 0.001) continue;
+          const branchDirection = occurrenceDirectionVector(occurrence, step);
+          if (!branchDirection) continue;
+          const { dx: branchDx, dz: branchDz, lengthM: branchLengthM } =
+            branchDirection;
           for (const carrierStep of [-1, 1] as const) {
             const carrierNeighbour =
               internalCarrier.surface.centerline[
@@ -1442,14 +1573,14 @@ export function buildElevatedRoadJunctionEnvelopes(
     }
     const outwardOccurrences = cluster.occurrences.flatMap((occurrence) =>
       ([-1, 1] as const).flatMap((step) => {
-        const neighbour =
-          occurrence.surface.centerline[occurrence.nodeIndex + step];
-        if (!neighbour) return [];
-        const dx = neighbour.x - cluster.point.x;
-        const dz = neighbour.z - cluster.point.z;
-        const lengthM = Math.hypot(dx, dz);
-        return lengthM > 0.001
-          ? [{ occurrence, step, ux: dx / lengthM, uz: dz / lengthM }]
+        const direction = occurrenceDirectionVector(occurrence, step);
+        return direction
+          ? [{
+              occurrence,
+              step,
+              ux: direction.dx / direction.lengthM,
+              uz: direction.dz / direction.lengthM,
+            }]
           : [];
       }),
     );
@@ -1501,16 +1632,12 @@ export function buildElevatedRoadJunctionEnvelopes(
       ) {
         return { positive: throatHalfWidthM, negative: throatHalfWidthM };
       }
-      const neighbour = occurrence.surface.centerline[occurrence.nodeIndex + step];
-      if (!neighbour) {
+      const branchDirection = occurrenceDirectionVector(occurrence, step);
+      if (!branchDirection) {
         return { positive: nominalHalfWidthM, negative: nominalHalfWidthM };
       }
-      const branchDx = neighbour.x - cluster.point.x;
-      const branchDz = neighbour.z - cluster.point.z;
-      const branchLengthM = Math.hypot(branchDx, branchDz);
-      if (branchLengthM < 0.001) {
-        return { positive: nominalHalfWidthM, negative: nominalHalfWidthM };
-      }
+      const { dx: branchDx, dz: branchDz, lengthM: branchLengthM } =
+        branchDirection;
       const far =
         step > 0
           ? occurrence.surface.centerline.at(-1)!

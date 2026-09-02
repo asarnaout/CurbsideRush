@@ -533,6 +533,40 @@ export function regulatorySignPlacements(
   input: RegulatorySignInput,
 ): readonly RegulatorySignPlacement[] {
   const model = buildJunctionModel(input, { skipRoundaboutNodes: true });
+  // A divided road can expose only one direction at an offset ramp node even
+  // though the road as a whole still carries traffic both ways. Classifying
+  // that single node in isolation puts ONE WAY / DO NOT ENTER clutter on the
+  // through road at every merge. The road-wide lane headings are authoritative:
+  // only roads whose authored lanes all run in the same general direction are
+  // eligible for one-way signage. Individual one-way ramps remain eligible,
+  // while a two-way carrier stays unsigned even when its directions use
+  // separate physical nodes.
+  const roadDirections = new Map<string, Array<{ x: number; z: number }>>();
+  for (const lane of input.lanes) {
+    if (lane.role === "roundabout" || lane.centerline.length < 2) continue;
+    const from = lane.centerline[0];
+    const to = lane.centerline[lane.centerline.length - 1];
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dz);
+    if (length <= 1e-6) continue;
+    const roadId = lane.roadId ?? lane.id;
+    const directions = roadDirections.get(roadId) ?? [];
+    directions.push({ x: dx / length, z: dz / length });
+    roadDirections.set(roadId, directions);
+  }
+  const oneWayRoadIds = new Set<string>();
+  for (const [roadId, directions] of roadDirections) {
+    const reference = directions[0];
+    if (
+      directions.every(
+        (direction) =>
+          direction.x * reference.x + direction.z * reference.z >= -1e-6,
+      )
+    ) {
+      oneWayRoadIds.add(roadId);
+    }
+  }
   const placements: RegulatorySignPlacement[] = [];
   for (const node of model.nodesByKey.values()) {
     // Mouth signs only make sense where roads actually meet — a mid-road
@@ -557,6 +591,7 @@ export function regulatorySignPlacements(
     }
 
     for (const arm of node.arms) {
+      if (!oneWayRoadIds.has(arm.roadId)) continue;
       if (arm.departing === arm.arriving) continue; // two-way — no signs
       const lateral = arm.widthM / 2 + KERB_MARGIN_M;
       const nodeRef = `${arm.roadId}@${Math.round(node.position.x * 10) / 10},${Math.round(node.position.z * 10) / 10}`;
@@ -580,14 +615,15 @@ export function regulatorySignPlacements(
             distanceM += REGULATORY_SIGN_SLIDE_STEP_M
           ) {
             const toward = arm.regulatoryPath[1] ?? arm.farPoint;
+            const surfaceStation = stationAlongSurface(
+              arm.surfaceCenterline,
+              arm.position,
+              toward,
+              distanceM,
+              false,
+            );
             const station =
-              stationAlongSurface(
-                arm.surfaceCenterline,
-                arm.position,
-                toward,
-                distanceM,
-                false,
-              ) ?? stationAlongPolyline(arm.regulatoryPath, distanceM);
+              surfaceStation ?? stationAlongPolyline(arm.regulatoryPath, distanceM);
             if (!station) break;
             // The walked tangent points physically away from the junction.
             // Arriving-only arms carry legal traffic in the reverse direction.
@@ -609,7 +645,12 @@ export function regulatorySignPlacements(
               // The offset post can project to a different point on a curved
               // grade than its centreline station. Audit the finished post at
               // that actual elevation, matching speed-limit placement below.
-              elevationM: arm.surfaceCenterline
+              // A long repeater may walk through a successor-linked road-id
+              // seam (ground slip -> elevated ramp). In that case the arm's
+              // original surface no longer owns the station, so projecting
+              // back to it would pin an elevated post to ground level. Use
+              // the walked lane profile once stationing has left that surface.
+              elevationM: surfaceStation && arm.surfaceCenterline
                 ? elevationOnPolylineAt(
                     arm.surfaceCenterline,
                     candidateX,

@@ -393,11 +393,33 @@ const surfaceEndpointJoins = (
   const first = surface.centerline[0];
   const last = surface.centerline[surface.centerline.length - 1];
   if (!first || !last) return false;
-  return [first, last].some((endpoint) =>
-    other.centerline.some((point) =>
-      sameElevatedJunctionPoint(endpoint, point),
-    ),
-  );
+  return [first, last].some((endpoint) => {
+    if (
+      other.centerline.some((point) =>
+        sameElevatedJunctionPoint(endpoint, point),
+      )
+    ) {
+      return true;
+    }
+    // A one-lane merge belongs on the carrier's outer travel lane, not on
+    // its centreline. Treat a same-level narrow endpoint inside the wider
+    // asphalt footprint as physically joined only at an authored carrier
+    // knot; the shared junction planner uses that same rule when it supplies
+    // the one-sided collar.
+    return (
+      other.widthM > surface.widthM + 0.05 &&
+      other.centerline.some(
+        (carrierKnot) =>
+          Math.abs(
+            (endpoint.elevationM ?? 0) - (carrierKnot.elevationM ?? 0),
+          ) <= 0.05 &&
+          Math.hypot(
+            endpoint.x - carrierKnot.x,
+            endpoint.z - carrierKnot.z,
+          ) <= other.widthM / 2 + 0.05,
+      )
+    );
+  });
 };
 
 type ElevatedEndpointKey = "start" | "end";
@@ -460,6 +482,22 @@ export function elevatedRoadEndpointHasStructuralContinuation(
   if (!endpoint) return false;
   for (const other of allSurfaces) {
     if (other.id === surface.id || !isElevatedRoadSurface(other)) continue;
+    if (
+      other.widthM > surface.widthM + 0.05 &&
+      other.centerline.some(
+        (carrierKnot) =>
+          Math.abs(
+            (endpoint.point.elevationM ?? 0) -
+              (carrierKnot.elevationM ?? 0),
+          ) <= 0.05 &&
+          Math.hypot(
+            endpoint.point.x - carrierKnot.x,
+            endpoint.point.z - carrierKnot.z,
+          ) <= other.widthM / 2 + 0.05,
+      )
+    ) {
+      return true;
+    }
     for (let pointIndex = 0; pointIndex < other.centerline.length; pointIndex += 1) {
       const otherPoint = other.centerline[pointIndex];
       if (!sameElevatedJunctionPoint(endpoint.point, otherPoint)) continue;

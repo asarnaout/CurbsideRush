@@ -16,8 +16,9 @@ Also read [map-authoring.md](map-authoring.md) for the road schema and
 [rendering.md](rendering.md) for scene-level performance rules. The map-specific
 alignment and preservation records are
 [cairo-elevated-road-network.md](cairo-elevated-road-network.md) and
-[tokyo-elevated-road-network.md](tokyo-elevated-road-network.md); consult them as
-worked examples, never as the generic specification.
+[tokyo-elevated-road-network.md](tokyo-elevated-road-network.md), plus the
+[NYC Queensview record](nyc-elevated-road-network.md); consult them as worked
+examples, never as the generic specification.
 
 ## The contract
 

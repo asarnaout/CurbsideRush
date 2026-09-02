@@ -156,7 +156,7 @@ Omit the field and posts stand bolted to signal poles, unread and unwarned.
 
 | Map | Lanes | Roads | Lane km | Signals | Cameras | World (x × z m) |
 |---|---|---|---|---|---|---|
-| `nyc-upper-west-side` | 415 | 39 | 96.0 | 104 | 35 | 2600 × 3000 |
+| `nyc-upper-west-side` | 448 | 56 | 100.3 | 102 | 35 | 2600 × 3000 |
 | `cairo-central-nile` | 377 | 56 | 60.2 | 10 | 3 | 1770 × 1830 |
 | `tokyo-setagaya` | 538 | 102 | 96.1 | 41 | 14 | 2600 × 2400 |
 | `london-south-kensington` | 380 | 86 | 69.9 | 12 | 4 | 2950 × 2000 |
@@ -173,6 +173,12 @@ successors, surfaces and a control at every crossing fed by two roads — a
 signal when at least two arriving roads are signal-class, else a stop.
 `buildNycBlocks` derives the blocks — zoned by column and latitude, so
 inserting a street splits a cell without changing what stands on either half.
+
+Queensview is the deliberate exception to the grid's road generation. The grid
+still owns topology breaks on its ground host streets, while the high mainline,
+slips and ramps come from a direction-qualified open-road network so stacked
+crossings never become turns. Read
+[nyc-elevated-road-network.md](nyc-elevated-road-network.md) before changing it.
 
 Hence **lane ids name the crossing each block starts at** (`nyc-we-n-72`):
 numbering *spans* would rename every lane on a road the moment one crosses it,
@@ -662,7 +668,9 @@ planting" block pins the species on the real map.
 **`streetAddressesForMap` caches by `pack.id`** in a module-level Map (mutating
 a pack after the first call has no effect); addresses exist only for roads
 listed in `STREET_PROFILES` (today: NYC, London and Tokyo) — a road missing
-from it generates none, silently (`addressableStreetNames` catches this).
+from it generates none, silently (`addressableStreetNames` catches this unless
+the profile explicitly sets `expectsAddresses: false` for a clearance-scrubbed
+corridor that is intentionally kept in the deterministic candidate walk).
 Cairo has none and relies on authored venues alone.
 
 **A gap-closure block set `addressable: false`** is skipped by the frontage

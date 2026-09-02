@@ -13,10 +13,15 @@ import {
   buildSimulationCoreConfig,
   buildRuntimeTrafficPortals,
   buildTrafficGates,
+  resolveSimulationLaneAnchor,
   resolveAmbientVehicleCount,
   resolveSimulationStartPose,
 } from "../app/game/simulationAdapter";
 import { buildFreeDriveScenario } from "../app/game/driveScenario";
+import {
+  NYC_QUEENSVIEW_DECK_ELEVATION_M,
+  NYC_QUEENSVIEW_NETWORK_PREFIX,
+} from "../app/game/cities/nycElevatedRoadNetwork";
 import type {
   DriveScenario,
   GameCanvasMapPack,
@@ -848,6 +853,54 @@ describe("runtime traffic portal safety", () => {
     // strong catalogue floor without pinning the obsolete duplicate count.
     expect(elevated.length).toBeGreaterThanOrEqual(90);
     expect(Math.max(...elevated.map((portal) => portal.elevationM ?? 0))).toBe(10.5);
+  });
+
+  it("preserves Queensview deck height on safe portals in both directions", () => {
+    const mapPack = getMapPack("nyc-upper-west-side");
+    const lanesById = new Map(
+      mapPack.laneGraph.lanes.map((lane) => [lane.id, lane]),
+    );
+    const bridgePortals = buildRuntimeTrafficPortals(mapPack).filter((portal) =>
+      lanesById
+        .get(portal.laneId)
+        ?.roadId?.startsWith(NYC_QUEENSVIEW_NETWORK_PREFIX),
+    );
+    const directions = new Set<string>();
+    const failures: string[] = [];
+
+    for (const portal of bridgePortals) {
+      const lane = lanesById.get(portal.laneId);
+      if (!lane) {
+        failures.push(`${portal.id} references missing lane ${portal.laneId}`);
+        continue;
+      }
+      if (lane.id.includes("-main-eb-")) directions.add("eastbound");
+      if (lane.id.includes("-main-wb-")) directions.add("westbound");
+      const resolved = resolveSimulationLaneAnchor([lane], {
+        laneId: lane.id,
+        distanceAlongM: portal.distance,
+      });
+      if (!resolved) {
+        failures.push(`${portal.id} does not resolve on ${lane.id}`);
+        continue;
+      }
+      if (
+        lane.role !== "travel" ||
+        Math.abs((portal.elevationM ?? 0) - NYC_QUEENSVIEW_DECK_ELEVATION_M) >
+          1e-6 ||
+        Math.abs(
+          (portal.elevationM ?? 0) - (resolved.elevationM ?? 0),
+        ) > 1e-6
+      ) {
+        failures.push(
+          `${portal.id}: role ${lane.role}, portal ${(portal.elevationM ?? 0).toFixed(3)}m, lane ${(resolved.elevationM ?? 0).toFixed(3)}m`,
+        );
+      }
+    }
+
+    expect(bridgePortals.length).toBeGreaterThan(10);
+    expect(directions).toEqual(new Set(["eastbound", "westbound"]));
+    expect(failures).toEqual([]);
   });
 
   it("keeps portal samples clear of parallel/fallback stop lines and conflict zones", () => {

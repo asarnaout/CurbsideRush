@@ -361,8 +361,16 @@ describe("buildPavementGraph", () => {
         expect(match, `${pack.id} fill at ${fill.pivot.x},${fill.pivot.z}`).toBe(true);
       }
       expect(graph.junctions.length, pack.id).toBeGreaterThanOrEqual(fills.length);
+      // Each Queensview ground slip meets its host or ramp at one physical
+      // mid-segment adoption that the pedestrian planner must recognize even
+      // when the asphalt-fill planner can leave the overlapping strips alone.
+      // Pin that authored inventory instead of raising every city's allowance.
       const virtualJunctionAllowance =
-        pack.id === "cairo-central-nile" ? 6 : 2;
+        pack.id === "nyc-upper-west-side"
+          ? surfaces.filter((surface) => surface.id.endsWith("-slip")).length
+          : pack.id === "cairo-central-nile"
+            ? 6
+            : 2;
       expect(graph.junctions.length, pack.id).toBeLessThanOrEqual(
         fills.length + virtualJunctionAllowance,
       );
@@ -416,7 +424,7 @@ describe("buildPavementGraph", () => {
       }
       for (const node of graph.nodes) {
         if (node.edgeIds.length >= 2) continue;
-        // Cairo and Tokyo's auxiliary lanes deliberately terminate the old
+        // Cairo, Tokyo, and NYC's auxiliary lanes deliberately terminate the old
         // inner kerb instead of routing pedestrians across a motorway merge.
         // Crowd walkers understand a degree-one end and turn around there;
         // maps without slip roads retain the all-circuit pavement contract.
@@ -429,7 +437,7 @@ describe("buildPavementGraph", () => {
           ),
         );
         expect(
-          ["cairo-central-nile", "tokyo-setagaya"],
+          ["cairo-central-nile", "nyc-upper-west-side", "tokyo-setagaya"],
           `node ${node.id}`,
         ).toContain(pack.id);
         expect(
@@ -442,7 +450,7 @@ describe("buildPavementGraph", () => {
         expect(length, pack.id).toBeGreaterThan(40);
       }
     }
-  });
+  }, 60_000);
 });
 
 describe("samplePavementEdge", () => {

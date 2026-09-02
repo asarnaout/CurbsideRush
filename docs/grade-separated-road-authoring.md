@@ -83,7 +83,12 @@ pavement graph can synthesize a false pedestrian rail along a vehicle structure.
 Constant-width strips cannot safely form an elevated merge, fork or unequal-
 width handoff. Their slabs step or overlap while independently trimmed parapets
 leave gaps. `buildElevatedRoadJunctionEnvelopes` instead clusters same-level
-shared endpoints and produces one physical collar.
+shared endpoints and produces one physical collar. A narrow motorway branch is
+the deliberate exception to centreline equality: its authored endpoint stays
+on the wider carrier's outer travel lane. When that endpoint lies inside the
+carrier footprint at an authored carrier knot, the junction planner inserts a
+collar-only cross-deck arm to the carrier centre. Do not move the legal lane to
+that synthetic pivot or widen a one-lane ramp to fake a centreline join.
 
 The collar contract is:
 

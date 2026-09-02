@@ -207,11 +207,13 @@ describe("collectRoadJunctionFills", () => {
     expect(pointInPolygon({ x: 4.5, z: -3.4 }, fills[0].polygon)).toBe(true);
   });
 
-  it("adopts exactly the two Cromwell arms across every shipped map", () => {
-    // The adoption pass exists for one authored situation. If any other arm
-    // starts adopting — on either the asphalt or the inflated shoulder pass —
-    // that is a new off-node road end somebody authored by accident, and it
-    // should be a conscious decision, not a silent geometry change.
+  it("adopts exactly the intentional off-node arms across every shipped map", () => {
+    // Cromwell's recentred dual carriageway needs adoption on both passes.
+    // Queensview's Vernon exit and 40th Avenue entry mouths deliberately sit
+    // just clear of their neighbouring grid intersections: their asphalt does
+    // not reach those junctions, while the inflated shoulder apron does. Pin
+    // that distinction so another off-node road end cannot silently join a
+    // junction on either pass.
     for (const inflation of [0, 3.4]) {
       const adopted: string[] = [];
       for (const pack of MAP_PACKS) {
@@ -232,6 +234,12 @@ describe("collectRoadJunctionFills", () => {
       expect(adopted, `inflation ${inflation}`).toEqual([
         "london-south-kensington:london-cromwell-west",
         "london-south-kensington:london-cromwell-west",
+        ...(inflation === 3.4
+          ? [
+              "nyc-upper-west-side:nyc-queensview-queens-vernon-exit-slip",
+              "nyc-upper-west-side:nyc-queensview-queens-40th-entry-slip",
+            ]
+          : []),
       ]);
     }
   });

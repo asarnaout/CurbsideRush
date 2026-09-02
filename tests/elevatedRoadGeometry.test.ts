@@ -15,6 +15,7 @@ import {
   elevatedRoadDeckHeadroomAt,
   elevatedRoadDeckRun,
   elevatedRoadEdgeRuns,
+  elevatedRoadEndpointHasStructuralContinuation,
   elevatedRoadJunctionEnvelopes,
   elevatedRoadJunctionSurfaceElevationAt,
   elevatedRoadPierPlacements,
@@ -675,6 +676,57 @@ describe("elevated-road structure placement", () => {
       -narrowSegment.lengthM / 2 - 0.175,
       9,
     );
+  });
+
+  it("recognizes an offset shoulder join only at an authored carrier knot", () => {
+    const carrier = {
+      id: "offset-join-carrier",
+      widthM: 14,
+      centerline: [
+        { x: -60, z: 0, elevationM: 10 },
+        { x: 0, z: 0, elevationM: 10 },
+        { x: 60, z: 0, elevationM: 10 },
+      ],
+    };
+    const branchAtKnot = {
+      id: "offset-branch-at-knot",
+      widthM: 5.8,
+      centerline: [
+        { x: 0, z: 5.25, elevationM: 10 },
+        { x: 0, z: 30, elevationM: 10 },
+      ],
+    };
+    const branchBetweenKnots = {
+      id: "offset-branch-between-knots",
+      widthM: 5.8,
+      centerline: [
+        { x: 30, z: 5.25, elevationM: 10 },
+        { x: 30, z: 30, elevationM: 10 },
+      ],
+    };
+    const atKnotSegment = elevatedRoadSegmentPlacements(branchAtKnot)[0];
+    const betweenKnotsSegment = elevatedRoadSegmentPlacements(
+      branchBetweenKnots,
+    )[0];
+
+    expect(
+      elevatedRoadEndpointHasStructuralContinuation(
+        branchAtKnot,
+        atKnotSegment,
+        [carrier, branchAtKnot],
+        "start",
+      ),
+      "the collar builder can own an outer-lane join at a carrier knot",
+    ).toBe(true);
+    expect(
+      elevatedRoadEndpointHasStructuralContinuation(
+        branchBetweenKnots,
+        betweenKnotsSegment,
+        [carrier, branchBetweenKnots],
+        "start",
+      ),
+      "mere footprint overlap cannot suppress a terminal deck face",
+    ).toBe(false);
   });
 
   it("keeps a tangent branch open until both parapets clear its wider carrier", () => {

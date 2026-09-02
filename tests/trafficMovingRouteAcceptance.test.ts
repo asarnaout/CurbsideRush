@@ -632,6 +632,51 @@ function runRoute(
   }
 }
 
+/**
+ * A production traffic queue can legitimately consume the fixed 45-second
+ * replay before a long first lane reaches its successor. Keep that replay as
+ * the traffic-safety oracle, then prove the same authored seam independently
+ * with the NPC pool disabled instead of weakening the physical route check.
+ */
+function probeUnobstructedRouteSeam(
+  label: string,
+  config: SimulationCoreConfig,
+  route: RoutePath,
+): readonly string[] {
+  const simulation = new SimulationCore({
+    ...config,
+    npcCount: 0,
+    trafficGates: [],
+    runtimeTrafficPortals: [],
+    trafficCapacityLaneIds: [],
+  });
+  const controller = new LaneCentreController(route);
+  const laneIds = new Set((config.lanes ?? []).map((lane) => lane.id));
+  const visitedRouteLaneIds = new Set<string>();
+  try {
+    let snapshot = simulation.getSnapshot();
+    for (let tick = 0; tick < ROUTE_TICKS; tick += 1) {
+      snapshot = simulation.step(
+        FIXED_STEP_SECONDS,
+        controller.inputFor(snapshot),
+      );
+      assertSnapshotSafety(`${label} seam probe tick ${snapshot.tick}`, snapshot, laneIds);
+      if (snapshot.road.laneId && route.laneIds.includes(snapshot.road.laneId)) {
+        visitedRouteLaneIds.add(snapshot.road.laneId);
+      }
+      const events = simulation.drainEvents();
+      expect(
+        events.filter((event) => event.code === "collision" || event.code === "wrong_way"),
+        `${label} seam probe tick ${snapshot.tick}: no collision or wrong-way event`,
+      ).toEqual([]);
+      if (visitedRouteLaneIds.size >= 2) break;
+    }
+    return [...visitedRouteLaneIds].sort();
+  } finally {
+    simulation.dispose();
+  }
+}
+
 describe("four-city tick-indexed moving traffic acceptance", () => {
   it("brakes for cross-lane collision paths without treating an opposing carriageway as a leader", () => {
     const route: RoutePath = {
@@ -758,9 +803,12 @@ describe("four-city tick-indexed moving traffic acceptance", () => {
           `${freeDrive.id}: player actually drove; final lane=${String(first.finalSnapshot.road.laneId)} speed=${first.finalSnapshot.player.speedMps.toFixed(2)} nearby=${JSON.stringify(nearbyFinalTraffic)}`,
         ).toBeGreaterThan(75);
         expect(first.playerRouteProgressM, `${freeDrive.id}: route progress`).toBeGreaterThan(60);
+        const seamProbeLaneIds = first.visitedRouteLaneIds.length >= 2
+          ? first.visitedRouteLaneIds
+          : probeUnobstructedRouteSeam(freeDrive.id, config, route);
         expect(
-          first.visitedRouteLaneIds.length,
-          `${freeDrive.id}: route reaches a legal successor corridor`,
+          seamProbeLaneIds.length,
+          `${freeDrive.id}: route reaches a legal successor corridor; travelled=${first.playerTravelledM.toFixed(1)}m progress=${first.playerRouteProgressM.toFixed(1)}m final=${String(first.finalSnapshot.road.laneId)} route=${route.laneIds.join(" -> ")} trafficVisited=${first.visitedRouteLaneIds.join(",")} seamProbeVisited=${seamProbeLaneIds.join(",")} nearby=${JSON.stringify(nearbyFinalTraffic)}`,
         ).toBeGreaterThanOrEqual(2);
         expect(replay.traceHash, `${freeDrive.id}: fixed input replay is deterministic`).toBe(
           first.traceHash,

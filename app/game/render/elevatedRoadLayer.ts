@@ -49,9 +49,10 @@ export const CAIRO_BRIDGE_LAMP_SPACING_M = 26;
 export const CAIRO_BRIDGE_LAMP_END_INSET_M = 3;
 export const CAIRO_BRIDGE_LAMP_HEIGHT_M = 5.8;
 const CAIRO_BRIDGE_LAMP_OVERHEAD_CLEARANCE_M = 0.1;
-// Tokyo deliberately reuses Cairo's proven detailed geometry dimensions. The
-// inward-facing arm and head reach almost two metres from the parapet pole, so
-// both styles test that complete plan footprint against higher flyover decks.
+// Tokyo and NYC deliberately reuse Cairo's proven detailed geometry
+// dimensions. The inward-facing arm and head reach almost two metres from the
+// parapet pole, so every detailed style tests that complete plan footprint
+// against higher flyover decks.
 const CAIRO_BRIDGE_LAMP_OVERHEAD_FOOTPRINT_RADIUS_M = 2;
 export const CAIRO_BRIDGE_PARAPET_TOTAL_HEIGHT_M =
   ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
@@ -90,9 +91,9 @@ const gridOffsetsWithinRun = (
 
 /**
  * Repeatable detailed barrier geometry laid out in surface-distance space.
- * The Cairo-named export is retained for compatibility; Tokyo deliberately
- * uses the same global post/reflector phase so the rhythm does not restart at
- * an authored polyline segment or trimmed flyover junction.
+ * The Cairo-named export is retained for compatibility; Tokyo and NYC
+ * deliberately use the same global post/reflector phase so the rhythm does not
+ * restart at an authored polyline segment or trimmed flyover junction.
  */
 export function cairoBridgeBarrierVisualPlan(
   runLengthM: number,
@@ -979,9 +980,10 @@ const material = (
  * City-specific road-bridge grammar built over the shared physical outline.
  * Cairo keeps its dusty concrete and aged green steel; Tokyo reuses the same
  * continuous crash base, coping, upper rail, reflectors and lamps in clean pale
- * concrete and blue-gray steel. The road top itself is built by the ordinary
- * RoadSurface pass, so this layer can never become a decorative, undrivable
- * duplicate.
+ * concrete and blue-gray steel; NYC gives that proven physical grammar granite
+ * gray concrete, blackened blue-gray steel and warm amber lighting. The road
+ * top itself is built by the ordinary RoadSurface pass, so this layer can never
+ * become a decorative, undrivable duplicate.
  */
 export function buildElevatedRoadStructures(
   destinationCtx: ElevatedRoadRenderCtx,
@@ -1012,8 +1014,9 @@ export function buildElevatedRoadStructures(
   const normalizedMapId = mapPack.id.toLowerCase();
   const usesCairoBarrierStyle = normalizedMapId.includes("cairo");
   const usesTokyoBarrierStyle = normalizedMapId.includes("tokyo");
+  const usesNycBarrierStyle = normalizedMapId.includes("nyc");
   const usesDetailedBarrierStyle =
-    usesCairoBarrierStyle || usesTokyoBarrierStyle;
+    usesCairoBarrierStyle || usesTokyoBarrierStyle || usesNycBarrierStyle;
   const bridgeLampOverheadDeckAt = usesDetailedBarrierStyle
     ? createElevatedRoadDeckHeadroomQuery(allRoadSurfaces)
     : null;
@@ -1022,35 +1025,49 @@ export function buildElevatedRoadStructures(
     ctx.scene,
     usesTokyoBarrierStyle
       ? "tokyo-bridge-pale-structural-concrete"
+      : usesNycBarrierStyle
+        ? "nyc-bridge-granite-concrete"
       : "elevated-road-dusty-concrete",
     usesTokyoBarrierStyle
       ? new Color3(0.69, 0.71, 0.72)
+      : usesNycBarrierStyle
+        ? new Color3(0.54, 0.55, 0.54)
       : new Color3(0.49, 0.47, 0.42),
   );
   const underside = material(
     ctx.scene,
     usesTokyoBarrierStyle
       ? "tokyo-bridge-blue-gray-concrete"
+      : usesNycBarrierStyle
+        ? "nyc-bridge-blue-gray-structural-steel"
       : "elevated-road-shadow-concrete",
     usesTokyoBarrierStyle
       ? new Color3(0.3, 0.35, 0.39)
+      : usesNycBarrierStyle
+        ? new Color3(0.11, 0.145, 0.18)
       : new Color3(0.31, 0.31, 0.29),
   );
   const reflector = material(
     ctx.scene,
     usesTokyoBarrierStyle
       ? "tokyo-bridge-cool-white-reflector"
+      : usesNycBarrierStyle
+        ? "nyc-bridge-amber-reflector"
       : "elevated-road-amber-reflector",
     usesCairoBarrierStyle
       ? new Color3(0.86, 0.62, 0.18)
       : usesTokyoBarrierStyle
         ? new Color3(0.78, 0.88, 0.96)
+        : usesNycBarrierStyle
+          ? new Color3(0.94, 0.65, 0.2)
         : new Color3(0.78, 0.52, 0.12),
   );
   reflector.emissiveColor = usesCairoBarrierStyle
     ? new Color3(0.16, 0.085, 0.014)
     : usesTokyoBarrierStyle
       ? new Color3(0.12, 0.17, 0.24)
+      : usesNycBarrierStyle
+        ? new Color3(0.3, 0.135, 0.025)
       : new Color3(0.2, 0.105, 0.018);
 
   const bridgeParapetConcrete = usesCairoBarrierStyle
@@ -1065,6 +1082,12 @@ export function buildElevatedRoadStructures(
           "tokyo-bridge-clean-pale-parapet",
           new Color3(0.76, 0.78, 0.79),
         )
+      : usesNycBarrierStyle
+        ? material(
+            ctx.scene,
+            "nyc-bridge-granite-parapet",
+            new Color3(0.49, 0.5, 0.49),
+          )
       : concrete;
   const bridgeCoping = usesCairoBarrierStyle
     ? material(
@@ -1078,11 +1101,19 @@ export function buildElevatedRoadStructures(
           "tokyo-bridge-blue-gray-coping",
           new Color3(0.46, 0.55, 0.62),
         )
+      : usesNycBarrierStyle
+        ? material(
+            ctx.scene,
+            "nyc-bridge-gray-granite-coping",
+            new Color3(0.63, 0.64, 0.62),
+          )
       : concrete;
   bridgeCoping.emissiveColor = usesCairoBarrierStyle
     ? new Color3(0.025, 0.021, 0.014)
     : usesTokyoBarrierStyle
       ? new Color3(0.012, 0.02, 0.028)
+      : usesNycBarrierStyle
+        ? new Color3(0.018, 0.017, 0.014)
       : Color3.Black();
   const bridgeRail = usesCairoBarrierStyle
     ? material(
@@ -1096,11 +1127,19 @@ export function buildElevatedRoadStructures(
           "tokyo-bridge-dark-steel",
           new Color3(0.055, 0.085, 0.12),
         )
+      : usesNycBarrierStyle
+        ? material(
+            ctx.scene,
+            "nyc-bridge-blackened-steel",
+            new Color3(0.035, 0.055, 0.075),
+          )
       : underside;
   if (usesCairoBarrierStyle) {
     bridgeRail.specularColor = new Color3(0.12, 0.13, 0.1);
   } else if (usesTokyoBarrierStyle) {
     bridgeRail.specularColor = new Color3(0.18, 0.22, 0.25);
+  } else if (usesNycBarrierStyle) {
+    bridgeRail.specularColor = new Color3(0.16, 0.19, 0.21);
   }
   const bridgeLampIron = usesCairoBarrierStyle
     ? material(
@@ -1114,6 +1153,12 @@ export function buildElevatedRoadStructures(
           "tokyo-bridge-lamp-dark-steel",
           new Color3(0.045, 0.065, 0.09),
         )
+      : usesNycBarrierStyle
+        ? material(
+            ctx.scene,
+            "nyc-bridge-lamp-blackened-steel",
+            new Color3(0.025, 0.04, 0.055),
+          )
       : null;
   const bridgeLampHead = usesCairoBarrierStyle
     ? material(
@@ -1127,11 +1172,19 @@ export function buildElevatedRoadStructures(
           "tokyo-bridge-lamp-head",
           new Color3(0.78, 0.86, 0.94),
         )
+      : usesNycBarrierStyle
+        ? material(
+            ctx.scene,
+            "nyc-bridge-lamp-head",
+            new Color3(0.95, 0.64, 0.25),
+          )
       : null;
   if (bridgeLampHead) {
     bridgeLampHead.emissiveColor = usesCairoBarrierStyle
       ? new Color3(1.55, 0.88, 0.32)
-      : new Color3(1.25, 1.48, 1.8);
+      : usesTokyoBarrierStyle
+        ? new Color3(1.25, 1.48, 1.8)
+        : new Color3(1.7, 0.78, 0.2);
     bridgeLampHead.specularColor = Color3.Black();
   }
   let bridgeLampPool: StandardMaterial | null = null;
@@ -1148,9 +1201,21 @@ export function buildElevatedRoadStructures(
         const distance = Math.hypot(x - 63.5, y - 63.5) / 63;
         const falloff = Math.max(0, 1 - distance);
         const offset = (y * poolTextureSize + x) * 4;
-        poolTextureData[offset] = usesCairoBarrierStyle ? 255 : 184;
-        poolTextureData[offset + 1] = usesCairoBarrierStyle ? 178 : 218;
-        poolTextureData[offset + 2] = usesCairoBarrierStyle ? 96 : 255;
+        poolTextureData[offset] = usesCairoBarrierStyle
+          ? 255
+          : usesTokyoBarrierStyle
+            ? 184
+            : 255;
+        poolTextureData[offset + 1] = usesCairoBarrierStyle
+          ? 178
+          : usesTokyoBarrierStyle
+            ? 218
+            : 150;
+        poolTextureData[offset + 2] = usesCairoBarrierStyle
+          ? 96
+          : usesTokyoBarrierStyle
+            ? 255
+            : 52;
         poolTextureData[offset + 3] = Math.round(
           255 * 0.74 * falloff * falloff,
         );
@@ -1166,18 +1231,24 @@ export function buildElevatedRoadStructures(
     );
     poolTexture.name = usesCairoBarrierStyle
       ? "cairo-bridge-lamp-pool-tex"
-      : "tokyo-bridge-lamp-pool-tex";
+      : usesTokyoBarrierStyle
+        ? "tokyo-bridge-lamp-pool-tex"
+        : "nyc-bridge-lamp-pool-tex";
     poolTexture.hasAlpha = true;
 
     bridgeLampPool = new StandardMaterial(
       usesCairoBarrierStyle
         ? "cairo-bridge-lamp-pool"
-        : "tokyo-bridge-lamp-pool",
+        : usesTokyoBarrierStyle
+          ? "tokyo-bridge-lamp-pool"
+          : "nyc-bridge-lamp-pool",
       ctx.scene,
     );
     bridgeLampPool.emissiveColor = usesCairoBarrierStyle
       ? new Color3(0.64, 0.41, 0.17)
-      : new Color3(0.28, 0.46, 0.68);
+      : usesTokyoBarrierStyle
+        ? new Color3(0.28, 0.46, 0.68)
+        : new Color3(0.72, 0.32, 0.08);
     bridgeLampPool.emissiveTexture = poolTexture;
     bridgeLampPool.opacityTexture = poolTexture;
     bridgeLampPool.alphaMode = Constants.ALPHA_ADD;
@@ -1333,7 +1404,7 @@ export function buildElevatedRoadStructures(
 
           // The proven detailed grammar pairs a solid concrete crash base with
           // a close-spaced dark metal rail. It follows the already-trimmed run,
-          // so Cairo and Tokyo ramp mouths stay open.
+          // so Cairo, Tokyo and NYC ramp mouths stay open.
           const railBaseY =
             ELEVATED_ROAD_PARAPET_BASE_LIFT_M +
             ELEVATED_ROAD_PARAPET_HEIGHT_M;
@@ -1548,8 +1619,8 @@ export function buildElevatedRoadStructures(
         }
 
         // Generic elevated-road fallback: sparse markers preserve the old
-        // treatment outside Cairo and Tokyo without turning the edge into an
-        // emissive ribbon.
+        // treatment outside the detailed city styles without turning the edge
+        // into an emissive ribbon.
         const reflectorCount = Math.max(1, Math.floor(run.lengthM / 26));
         for (let index = 0; index < reflectorCount; index += 1) {
           const alongM =

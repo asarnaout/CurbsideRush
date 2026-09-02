@@ -24,6 +24,7 @@ type RoadSurface = NonNullable<
 const MAINLINE_ID = "cairo-sixth-october-bridge";
 const RAMP_ID = "cairo-sixth-october-test-entry";
 const TOKYO_SPAN_ID = "tokyo-sakuragawa-expressway-test";
+const NYC_SPAN_ID = "nyc-queensview-expressway-test";
 
 const surface = (
   id: string,
@@ -54,6 +55,13 @@ const tokyoSpan = surface(TOKYO_SPAN_ID, [
   { x: -16, z: -2, elevationM: 8 },
   { x: 16, z: 4, elevationM: 8 },
   { x: 48, z: 10, elevationM: 8 },
+], 0.36);
+
+const nycSpan = surface(NYC_SPAN_ID, [
+  { x: -52, z: -8, elevationM: 5.2 },
+  { x: -20, z: -3, elevationM: 8 },
+  { x: 18, z: 4, elevationM: 8 },
+  { x: 54, z: 10, elevationM: 5.4 },
 ], 0.36);
 
 interface RenderedRoadLayer {
@@ -474,6 +482,81 @@ describe("elevated road barrier rendering", () => {
     expect(batched.scene.transformNodes.length).toBe(0);
   });
 
+  it("renders NYC's detailed granite-and-blackened-steel skin in exact batches", () => {
+    const unbatched = renderRoadLayer("synthetic-nyc", [nycSpan]);
+    const batched = renderRoadLayer("synthetic-nyc", [nycSpan], true);
+    const expectedMaterials = [
+      "nyc-bridge-granite-concrete",
+      "nyc-bridge-blue-gray-structural-steel",
+      "nyc-bridge-amber-reflector",
+      "nyc-bridge-granite-parapet",
+      "nyc-bridge-gray-granite-coping",
+      "nyc-bridge-blackened-steel",
+      "nyc-bridge-lamp-blackened-steel",
+      "nyc-bridge-lamp-head",
+      "nyc-bridge-lamp-pool",
+    ];
+
+    expect(
+      new Set(unbatched.scene.materials.map((meshMaterial) => meshMaterial.name)),
+    ).toEqual(new Set(expectedMaterials));
+    for (const materialName of expectedMaterials) {
+      expect(
+        unbatched.scene.materials.filter(
+          (meshMaterial) => meshMaterial.name === materialName,
+        ),
+        materialName,
+      ).toHaveLength(1);
+    }
+    expect(
+      meshesFor(unbatched, NYC_SPAN_ID, "-parapet-profile-").every(
+        (mesh) => mesh.material?.name === "nyc-bridge-granite-parapet",
+      ),
+    ).toBe(true);
+    expect(
+      meshesFor(unbatched, NYC_SPAN_ID, "-parapet-coping-").every(
+        (mesh) => mesh.material?.name === "nyc-bridge-gray-granite-coping",
+      ),
+    ).toBe(true);
+    expect(
+      meshesFor(
+        unbatched,
+        NYC_SPAN_ID,
+        "-parapet-maintenance-rail-",
+      ).every((mesh) => mesh.material?.name === "nyc-bridge-blackened-steel"),
+    ).toBe(true);
+    expect(meshesFor(unbatched, NYC_SPAN_ID, "-reflector-lens-").length).toBeGreaterThan(
+      0,
+    );
+    expect(meshesFor(unbatched, NYC_SPAN_ID, "-lamp-poles-").length).toBeGreaterThan(
+      0,
+    );
+    expect(meshesFor(unbatched, NYC_SPAN_ID, "-lamp-heads-").length).toBeGreaterThan(
+      0,
+    );
+    expect(meshesFor(unbatched, NYC_SPAN_ID, "-lamp-pool-").length).toBeGreaterThan(
+      1,
+    );
+    const lampHead = unbatched.scene.getMaterialByName(
+      "nyc-bridge-lamp-head",
+    ) as StandardMaterial;
+    expect(lampHead.emissiveColor.asArray()).toEqual([1.7, 0.78, 0.2]);
+
+    expect(worldGeometrySignature(batched)).toEqual(
+      worldGeometrySignature(unbatched),
+    );
+    expect(registeredShadowGeometrySignature(batched)).toEqual(
+      registeredShadowGeometrySignature(unbatched),
+    );
+    expect(
+      batched.meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0),
+    ).toBe(
+      unbatched.meshes.reduce((sum, mesh) => sum + mesh.getTotalIndices(), 0),
+    );
+    expect(batched.meshes.length).toBeLessThan(unbatched.meshes.length);
+    expect(batched.scene.transformNodes.length).toBe(0);
+  });
+
   it("omits a detailed lower-ramp lamp when its pole would pierce a crossing deck", () => {
     const lower = surface("cairo-stacked-lower", [
       { x: -26, z: 0, elevationM: 5 },
@@ -485,7 +568,7 @@ describe("elevated road barrier rendering", () => {
         { x: 0, z: 18, elevationM },
       ]);
 
-    for (const mapId of ["synthetic-cairo", "synthetic-tokyo"]) {
+    for (const mapId of ["synthetic-cairo", "synthetic-tokyo", "synthetic-nyc"]) {
       const blocked = renderRoadLayer(mapId, [lower, crossing(8)]);
       expect(meshesFor(blocked, lower.id, "-lamp-poles-"), mapId).toHaveLength(
         0,
