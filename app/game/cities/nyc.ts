@@ -1144,6 +1144,122 @@ const nycControls = nycGrid.controls.map((entry) => ({
 }));
 const nycBlocks = buildNycBlocks(NYC_AVENUES, NYC_STREETS);
 
+/** Stable selector for the reviewed street-wall strips beside Queensview. */
+export const NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX = "nyc-queensview-density-";
+
+/**
+ * The bridge corridor carver is deliberately conservative: it projects a
+ * ramp's complete swept width through an authored block's local long axis.
+ * That is the right first pass for collision safety, but a curve touching one
+ * corner can consequently remove hundreds of metres of otherwise usable
+ * frontage. These shallow, one-edge parcels put back only the independently
+ * clear street-wall remnants. Their single `streetEdges` entry prevents a
+ * second decorative row facing the interchange interior, and
+ * `addressable: false` keeps this visual repair from reshuffling the gig pool.
+ * Vernon and Crescent retain their established house rows; only the short
+ * bridge-facing and 40th Avenue arrival fronts use the borough shopping-street
+ * kit, giving the interchange a mixed-use threshold without rezoning either
+ * north-south neighbourhood street.
+ */
+export const NYC_QUEENSVIEW_DENSITY_BLOCKS = [
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-65th-park-west-south`,
+    center: point(134, -1110),
+    size: point(26, 130),
+    streetEdges: ["+x"],
+    addressable: false,
+    ...NYC_ZONES.midrise,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-65th-park-east-south`,
+    center: point(186, -1110),
+    size: point(26, 130),
+    streetEdges: ["-x"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-65th-park-west-north`,
+    center: point(134, -710),
+    size: point(26, 220),
+    streetEdges: ["+x"],
+    addressable: false,
+    ...NYC_ZONES.midrise,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-65th-park-east-north`,
+    center: point(186, -690),
+    size: point(26, 170),
+    streetEdges: ["-x"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-third-lexington-east-north`,
+    center: point(326, -670),
+    size: point(26, 150),
+    streetEdges: ["-x"],
+    addressable: false,
+    ...NYC_ZONES.midrise,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-third-west-north`,
+    center: point(414, -660),
+    size: point(26, 170),
+    streetEdges: ["+x"],
+    addressable: false,
+    ...NYC_ZONES.midrise,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}manhattan-third-west-bridge-bay`,
+    center: point(414, -905),
+    size: point(26, 60),
+    streetEdges: ["+x"],
+    addressable: false,
+    ...NYC_ZONES.midrise,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-vernon-bridge-facing`,
+    center: point(875, -736),
+    size: point(106, 28),
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.boroughRetail,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-vernon-east`,
+    center: point(827, -625),
+    size: point(28, 150),
+    streetEdges: ["-x"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-east`,
+    center: point(977, -625),
+    size: point(28, 150),
+    streetEdges: ["-x"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-40th-infield`,
+    center: point(860, -925),
+    size: point(26, 80),
+    streetEdges: ["-x"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-40th-north`,
+    center: point(990.5, -1053),
+    size: point(55, 28),
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.boroughRetail,
+  },
+] as const satisfies readonly ProceduralBlock[];
+
 /**
  * The borough freight lead (rail feature): a New York & Atlantic-style line
  * running the full Queens strip north-south along the Crescent–Steinway
@@ -1304,6 +1420,7 @@ export const NYC_MAP_PACK: MapPack = {
       // not real frontage like the west-margin/gallery blocks above.
       { id: "nyc-block-bk40-outer", center: point(974.2, -1115), size: point(365.6, 44), streetEdges: ["+z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
       { id: "nyc-block-bk56-outer", center: point(974.2, 1115), size: point(365.6, 44), streetEdges: ["-z"], addressable: false, heightRange: NYC_ZONES.houses.heightRange, density: NYC_ZONES.houses.density, material: NYC_ZONES.houses.material, buildingSet: NYC_ZONES.houses.buildingSet },
+      ...NYC_QUEENSVIEW_DENSITY_BLOCKS,
     // The whole list carves around the borough freight corridor last, same
     // as Tokyo and Cairo — tests/railCorridors.test.ts re-proves the result.
     ]), nycRoadNetwork.roadSurfaces

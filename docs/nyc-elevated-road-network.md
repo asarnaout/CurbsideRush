@@ -70,6 +70,11 @@ Blocks around E 65th, Third, Vernon and 40th Avenue are carved against the full
 road/parapet corridor before buildings are planned. Waterfront park ribbons,
 walls, planting, venues, parked cars, signs and other furniture must yield to the
 complete grade-separated clearance query, not merely to a centreline distance.
+`NYC_QUEENSVIEW_DENSITY_BLOCKS` restores only the small dry-land frontage
+remnants that the conservative one-axis carve would otherwise discard when a
+curved ramp touches a much deeper city block. Keep these parcels one-sided,
+non-addressable, and inside both the Queensview and freight-rail carvers; never
+trade the open riverbanks or a ramp clearance envelope for apparent density.
 
 ## Rendering and performance
 
