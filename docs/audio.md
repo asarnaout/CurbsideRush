@@ -45,3 +45,18 @@ is the cover.
 `tests/driveAudioScheduling.test.ts` injects a fake context whose `FakeParam`
 records a failure on any direct `.value` write after setup. The discipline it
 enforces is the difference between clean audio and clicks.
+
+## Render samples when changing synthesis or loops
+
+The scheduling fakes cannot detect native DSP corruption. With `npm run dev`
+running, open `/tools/audio-render-check.html` in Chrome and Safari and run the
+checks. `tests/browser/driveAudioRendering.ts` compares repeated noise samples
+across loop boundaries and renders the full production graph through driving,
+braking, pause/mute recovery and late impact/horn/indicator cues. It never plays
+the rendered signal through speakers.
+
+Loop durations must round-trip to exact frame counts; see `NOISE_SECONDS` in
+`voiceContext.ts` and `audioBuffers.test.ts`. Fractional overflow at the old
+2.7-second endpoint stranded affected Chromium sources at the first wrap,
+ultimately contaminating the effects mix with NaNs. Music bypasses this graph,
+so audible music and a running AudioContext do not prove effects are healthy.

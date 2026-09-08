@@ -31,11 +31,19 @@ export interface VoiceContext {
 }
 
 /**
- * 2.7 seconds, not one: a one-second white-noise loop has an audible 1Hz
- * chuffing period, and every voice shares this buffer at a different playback
- * rate rather than paying to generate three of them.
+ * Keep the duration a whole number of seconds. With 2.7s, converting duration
+ * back to frames yields e.g. 129600.00000000001 at 48kHz. Affected Chromium
+ * versions mishandle that fractional loop end, replaying stale output (which
+ * can become NaN through a filter and silence the entire effects bus). An exact
+ * endpoint avoids that native loop bug without changing playback pitch.
+ * Upstream: https://crbug.com/540961964 (observed in Chrome 152.0.7977.82).
+ *
+ * Three seconds also avoids the audible 1Hz chuff of a one-second noise loop.
+ * Voices share the buffer at different playback rates rather than regenerating
+ * the noise for each layer. `audioBuffers` guards the exact frame round trip;
+ * the browser audio check verifies the PCM actually repeats across boundaries.
  */
-const NOISE_SECONDS = 2.7;
+const NOISE_SECONDS = 3;
 const JITTER_SECONDS = 4;
 const JITTER_HZ = 8;
 
