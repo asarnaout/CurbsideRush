@@ -285,7 +285,9 @@ const EXPECTED_BASELINES: Readonly<Record<string, BuildingBaseline>> = {
     // walls its new corridor-facing edge — fresh nyc-house rows now flank
     // the tracks on both sides, the classic houses-beside-the-railway look.
     // tests/railCorridors.test.ts proves none stand ON the corridor.
-    buildingInstanceCount: 5_749,
+    // The Queensview corridor carve leaves 5_379 before the southeast fill;
+    // its thirteen additional frontage parcels contribute 53 real instances.
+    buildingInstanceCount: 5_432,
     cairoRoofClutterInstanceCount: 0,
     storefrontSignMaterialCount: 12,
   },

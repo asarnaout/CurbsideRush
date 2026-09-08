@@ -306,15 +306,18 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // light-pool decal grew 7 -> 10 m, so one more streetlight's pool box
     // crosses the fixed pose's frustum edge. Totals hold — NYC's lamp count
     // and per-lamp part list are untouched by the Tokyo-only retune.
-    totalMeshes: 29_847,
-    enabledMeshes: 29_797,
-    activeMeshes: 963,
-    materials: 205,
+    // Rebased against the high Queensview network: 34_080/34_030 before the
+    // southeast fill, then exactly 53 added building proxies. The comparison
+    // holds active meshes, materials and mirrors constant at the spawn view.
+    totalMeshes: 34_133,
+    enabledMeshes: 34_083,
+    activeMeshes: 972,
+    materials: 214,
     drawCallsPerFrame: 0,
     drawCallsOverSixFrames: 0,
     mirrorRendersOverSixFrames: 3,
-    mirrorCandidates: 81,
-    mirrorDrawn: 120,
+    mirrorCandidates: 95,
+    mirrorDrawn: 158,
     mirrorMeshNames: EXPECTED_MIRROR_MESH_NAMES,
     crowdInstances: 0,
     crowdMeshes: 0,
@@ -322,7 +325,8 @@ const EXPECTED_BASELINES: Readonly<Record<string, RenderBaseline>> = {
     // "91c8963c" -> "2d9d1a4b": the ten rail materials above.
     // -> "757ab7bb": +rail-brick/+rail-platform (see the materials note).
     // -> "1cadf565": +rail-deck (bridge-fix pass).
-    survivingMaterialNamesFingerprint: "1cadf565",
+    // Queensview's elevated structure and truss materials.
+    survivingMaterialNamesFingerprint: "5867c699",
   },
   "london-south-kensington": {
     // 908 -> 887: London became a `paved` city, and a paved map draws a

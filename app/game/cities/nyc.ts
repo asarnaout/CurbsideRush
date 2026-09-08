@@ -1149,17 +1149,17 @@ export const NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX = "nyc-queensview-density-";
 
 /**
  * The bridge corridor carver is deliberately conservative: it projects a
- * ramp's complete swept width through an authored block's local long axis.
+ * ramp's complete swept width through an authored block's local X axis.
  * That is the right first pass for collision safety, but a curve touching one
  * corner can consequently remove hundreds of metres of otherwise usable
  * frontage. These shallow, one-edge parcels put back only the independently
  * clear street-wall remnants. Their single `streetEdges` entry prevents a
  * second decorative row facing the interchange interior, and
  * `addressable: false` keeps this visual repair from reshuffling the gig pool.
- * Vernon and Crescent retain their established house rows; only the short
- * bridge-facing and 40th Avenue arrival fronts use the borough shopping-street
- * kit, giving the interchange a mixed-use threshold without rezoning either
- * north-south neighbourhood street.
+ * Vernon and Crescent retain house rows; brownstones frame the terminal
+ * courts, while bridge-facing and 40th Avenue arrival fronts use the borough
+ * shopping-street kit. The diagonal court row follows the adjacent ramp;
+ * the other facades stay square to the local street grid.
  */
 export const NYC_QUEENSVIEW_DENSITY_BLOCKS = [
   {
@@ -1257,6 +1257,124 @@ export const NYC_QUEENSVIEW_DENSITY_BLOCKS = [
     streetEdges: ["-z"],
     addressable: false,
     ...NYC_ZONES.boroughRetail,
+  },
+  // Short parcels recover the southeast terminal's individual street fronts.
+  // On north/south rows the local X axis follows the street, so the corridor
+  // carver trims the run at a bend instead of discarding its entire depth.
+  // Each row still passes through both corridor carvers below, including the
+  // river-side houses and the outside of the 40th Avenue return loop.
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-river-side`,
+    center: point(735, -962),
+    size: point(88, 14),
+    headingDeg: 90,
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-west-upper`,
+    center: point(930, -811),
+    size: point(30, 14),
+    headingDeg: 90,
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-infield-north`,
+    center: point(891, -868),
+    size: point(88, 16),
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-west-infield`,
+    center: point(929, -907),
+    size: point(58, 16),
+    headingDeg: 90,
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-infield-south`,
+    center: point(897, -946),
+    size: point(42, 16),
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-east-upper`,
+    center: point(970, -812),
+    size: point(30, 14),
+    headingDeg: 90,
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-east-infield`,
+    center: point(970, -894),
+    size: point(66, 14),
+    headingDeg: 90,
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-west-south`,
+    center: point(929, -1020),
+    size: point(78, 16),
+    headingDeg: 90,
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-crescent-east-south`,
+    center: point(970, -1009),
+    size: point(56, 14),
+    headingDeg: 90,
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-40th-west-court`,
+    center: point(860, -1020),
+    size: point(44, 14),
+    headingDeg: 90,
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-40th-court-north`,
+    center: point(891, -1008),
+    size: point(40, 16),
+    headingDeg: -27,
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.brownstone,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-40th-court-south`,
+    center: point(896, -1047),
+    size: point(44, 16),
+    streetEdges: ["-z"],
+    addressable: false,
+    ...NYC_ZONES.boroughRetail,
+  },
+  {
+    id: `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}queens-40th-loop-south`,
+    center: point(863, -1135),
+    size: point(88, 16),
+    streetEdges: ["+z"],
+    addressable: false,
+    ...NYC_ZONES.houses,
   },
 ] as const satisfies readonly ProceduralBlock[];
 

@@ -143,6 +143,22 @@ const boxesMeet = (a: Aabb2, b: Aabb2, paddingM = 0): boolean =>
 const densityBlockId = (suffix: string): string =>
   `${NYC_QUEENSVIEW_DENSITY_BLOCK_PREFIX}${suffix}`;
 
+const SOUTHEAST_BUILDING_COUNTS = new Map<string, number>([
+  [densityBlockId("queens-river-side"), 7],
+  [densityBlockId("queens-crescent-west-upper"), 2],
+  [densityBlockId("queens-infield-north"), 6],
+  [densityBlockId("queens-crescent-west-infield"), 4],
+  [densityBlockId("queens-infield-south"), 2],
+  [densityBlockId("queens-crescent-east-upper"), 2],
+  [densityBlockId("queens-crescent-east-infield"), 4],
+  [densityBlockId("queens-crescent-west-south"), 6],
+  [densityBlockId("queens-crescent-east-south"), 4],
+  [densityBlockId("queens-40th-west-court"), 3],
+  [densityBlockId("queens-40th-court-north"), 3],
+  [densityBlockId("queens-40th-court-south"), 3],
+  [densityBlockId("queens-40th-loop-south"), 7],
+]);
+
 const EXPECTED_BUILDING_COUNT_BY_AUTHORED_BLOCK_ID = new Map<string, number>([
   [densityBlockId("manhattan-65th-park-west-south"), 5],
   [densityBlockId("manhattan-65th-park-east-south"), 8],
@@ -156,6 +172,7 @@ const EXPECTED_BUILDING_COUNT_BY_AUTHORED_BLOCK_ID = new Map<string, number>([
   [densityBlockId("queens-crescent-east"), 10],
   [densityBlockId("queens-40th-infield"), 4],
   [densityBlockId("queens-40th-north"), 4],
+  ...SOUTHEAST_BUILDING_COUNTS,
 ]);
 
 /**
@@ -191,6 +208,7 @@ const DENSITY_BLOCK_IDS_BY_SITE = {
     densityBlockId("queens-crescent-east"),
     densityBlockId("queens-40th-infield"),
     densityBlockId("queens-40th-north"),
+    ...SOUTHEAST_BUILDING_COUNTS.keys(),
   ],
   "queens-40th": [
     densityBlockId("queens-vernon-bridge-facing"),
@@ -198,11 +216,15 @@ const DENSITY_BLOCK_IDS_BY_SITE = {
     densityBlockId("queens-crescent-east"),
     densityBlockId("queens-40th-infield"),
     densityBlockId("queens-40th-north"),
+    ...SOUTHEAST_BUILDING_COUNTS.keys(),
   ],
 } as const;
 
 const actualBlockComesFrom = (actualId: string, authoredId: string): boolean =>
-  actualId === authoredId || actualId.startsWith(`${authoredId}-`);
+  actualId === authoredId || (
+    actualId.startsWith(authoredId) &&
+    /^(?:-(?:qv|rw)\d+)+$/.test(actualId.slice(authoredId.length))
+  );
 
 const blockIdsForSite = (siteId: keyof typeof DENSITY_BLOCK_IDS_BY_SITE) =>
   DENSITY_BLOCK_IDS_BY_SITE[siteId];
@@ -439,6 +461,7 @@ describe("NYC Queensview approach density", () => {
       densityBlockId("queens-crescent-east"),
       densityBlockId("queens-40th-infield"),
       densityBlockId("queens-40th-north"),
+      ...SOUTHEAST_BUILDING_COUNTS.keys(),
     ]);
     for (const [authoredBlockId, expectedCount] of
       EXPECTED_BUILDING_COUNT_BY_AUTHORED_BLOCK_ID) {
@@ -449,7 +472,7 @@ describe("NYC Queensview approach density", () => {
         `${authoredBlockId} planned building inventory`,
       ).toHaveLength(expectedCount);
     }
-    expect(densityBuildings, "complete reviewed density plan").toHaveLength(87);
+    expect(densityBuildings, "complete reviewed density plan").toHaveLength(140);
 
     for (const site of NYC_QUEENSVIEW_ACCESS_SITES) {
       const authoredIds = blockIdsForSite(site.id);
@@ -557,14 +580,32 @@ describe("NYC Queensview approach density", () => {
 
     expect(
       densityBlocks.length,
-      "all twelve reviewed Queensview density parcels survive the carvers",
-    ).toBe(12);
+      "all reviewed Queensview density parcels survive the carvers",
+    ).toBe(25);
     expect(
       visualGeometry.issues.filter((issue) =>
         [...densityBuildingIds].some((buildingId) => issue.ownerId === buildingId),
       ),
       "every density building supplies auditable visual occlusion geometry",
     ).toEqual([]);
+  });
+
+  it.each([
+    { name: "river-side gap", minX: 726, maxX: 791, minZ: -1022, maxZ: -850, count: 7, area: 500 },
+    { name: "terminal infield", minX: 840, maxX: 1020, minZ: -980, maxZ: -855, count: 20, area: 1900 },
+    { name: "40th Avenue arrival", minX: 819, maxX: 1020, minZ: -1150, maxZ: -980, count: 38, area: 3200 },
+  ])("fills the marked $name with substantial building coverage", (region) => {
+    // These exact areas held 0, 4 and 12 buildings before the southeast fill.
+    // Count all planned solids here: distant rows north of the bridge cannot
+    // satisfy a density gate for the owner's marked southern gaps.
+    const buildings = buildingLayout.buildings.filter((building) =>
+      building.x >= region.minX && building.x <= region.maxX &&
+      building.z >= region.minZ && building.z <= region.maxZ,
+    );
+    expect(buildings.length).toBeGreaterThanOrEqual(region.count);
+    expect(buildings.reduce((area, building) => area + building.solids.reduce(
+      (sum, solid) => sum + shapeArea(obbShape(solid)), 0,
+    ), 0)).toBeGreaterThanOrEqual(region.area);
   });
 
   it("keeps every density solid outside exact ground carriageway and sidewalk geometry", () => {
