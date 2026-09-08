@@ -60,6 +60,11 @@ mouths. The Queensview generator owns only its slips, grades, carriers and high
 mainline, then grants direction- and lane-qualified successors between the two
 sets. Free-flow mouths receive no signal or stop control.
 
+`curateNycRegulatorySigns` and `curateNycSpeedLimitSigns` remove reviewed posts
+inside widened ramp/terminal collars that the generic centreline-width check
+cannot see. Apply curation before rendering, destructible registration and
+furniture keep-outs; the full pole/blade clearance audit owns the exclusion set.
+
 `nyc-east-river.bridgePortalSurfaceIds` contains Harborline only. Queensview
 passes above an unbroken shoreline collider, so adding it as a portal would
 create a false ground opening and side walls at the wrong level. The borough
@@ -81,7 +86,11 @@ trade the open riverbanks or a ramp clearance envelope for apparent density.
 `buildElevatedRoadStructures` supplies the physical deck, fascia, continuous
 crash base, rail, barrier colliders, supports and warm lamp line. The bespoke NYC
 landmark layer adds only the outboard/overhead cantilever-truss silhouette. It
-must not add collision or a second road surface.
+must not add collision or a second road surface. Outboard of the mainline can
+still be inside a ramp: `queensviewPavementBounds` includes the road strips and
+shared junction asphalt when opening low truss panels, raising the remaining
+web, joint plates and lights above each mouth. Keep those openings tied to
+pavement geometry rather than a separate list of access coordinates.
 
 Keep the complete stable road-surface array in the shared junction and clearance
 caches. Resolve edge runs once, keep the 32 m clearance broadphase and 45 m

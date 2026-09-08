@@ -1009,7 +1009,7 @@ describe("speed-limit signage", () => {
     expect(presented).toHaveLength(raw.length - reviewed.length);
   });
 
-  it("removes redundant Queensview floor repeaters at exit branches", () => {
+  it("removes reviewed Queensview repeaters and speed posts inside ramp mouths", () => {
     const raw = signsFor(nycPack());
     const presented = presentedSignsFor(nycPack());
     expect(raw.map((sign) => sign.refId)).toEqual(

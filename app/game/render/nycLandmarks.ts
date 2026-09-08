@@ -11,7 +11,11 @@ import {
   cairoBridgePortalVisualAxis,
   type CairoBridgeVisualAxis,
 } from "../geometry/waterGeometry";
-import { nearestPointOnPolyline } from "../geometry/roadStrips";
+import {
+  buildRoadSurfaceStripGeometry,
+  nearestPointOnPolyline,
+} from "../geometry/roadStrips";
+import { elevatedRoadJunctionEnvelopes } from "../geometry/elevatedRoadGeometry";
 import type { GameCanvasMapPack } from "../sessionContract";
 import { defaultSidewalkWidthM } from "../visuals";
 
@@ -64,6 +68,8 @@ const QUEENSVIEW_TRUSS_BASE_RISE_M = 7.4;
 const QUEENSVIEW_TRUSS_TOWER_RISE_M = 14.4;
 const QUEENSVIEW_TRUSS_BEAM_M = 0.24;
 const QUEENSVIEW_PORTAL_CLEARANCE_M = 7.2;
+// Covers half of the widest joint plate plus breathing room at the opening.
+const QUEENSVIEW_TRUSS_MOUTH_MARGIN_M = 0.6;
 
 type NycRoadSurface = NonNullable<
   GameCanvasMapPack["geometry"]["roadSurfaces"]
@@ -77,6 +83,74 @@ interface QueensviewTrussStation {
   readonly midY: number;
   readonly topY: number;
 }
+
+/**
+ * Conservative pavement bounds in the truss frame, including the shared
+ * widened junction collars. Being outboard of the mainline is insufficient:
+ * a slip crosses that same line on its way into or out of the bridge. Bounds
+ * cover complete pavement triangles, so a diagonal's interior cannot sneak
+ * across a mouth just because its endpoints stand outside it.
+ */
+const queensviewPavementBounds = (
+  surfaces: readonly NycRoadSurface[],
+  axis: CairoBridgeVisualAxis,
+) => {
+  const sin = Math.sin(axis.headingRad);
+  const cos = Math.cos(axis.headingRad);
+  const bounds: {
+    minAlongM: number;
+    maxAlongM: number;
+    minLateralM: number;
+    maxLateralM: number;
+    minY: number;
+    maxY: number;
+  }[] = [];
+  const addTriangles = (
+    positions: readonly number[],
+    indices: readonly number[],
+  ): void => {
+    for (let index = 0; index < indices.length; index += 3) {
+      const points = indices.slice(index, index + 3).map((vertex) => {
+        const dx = positions[vertex * 3] - axis.center.x;
+        const dz = positions[vertex * 3 + 2] - axis.center.z;
+        return {
+          alongM: dx * sin + dz * cos,
+          lateralM: -dx * cos + dz * sin,
+          y: positions[vertex * 3 + 1],
+        };
+      });
+      const minAlongM = Math.min(...points.map((point) => point.alongM));
+      const maxAlongM = Math.max(...points.map((point) => point.alongM));
+      if (
+        minAlongM > axis.lengthM / 2 + QUEENSVIEW_TRUSS_MOUTH_MARGIN_M ||
+        maxAlongM < -axis.lengthM / 2 - QUEENSVIEW_TRUSS_MOUTH_MARGIN_M
+      ) continue;
+      bounds.push({
+        minAlongM,
+        maxAlongM,
+        minLateralM: Math.min(...points.map((point) => point.lateralM)),
+        maxLateralM: Math.max(...points.map((point) => point.lateralM)),
+        minY: Math.min(...points.map((point) => point.y)),
+        maxY: Math.max(...points.map((point) => point.y)),
+      });
+    }
+  };
+  for (const surface of surfaces) {
+    const strip = buildRoadSurfaceStripGeometry(
+      surface.centerline,
+      surface.widthM,
+    );
+    addTriangles(strip.positions, strip.indices);
+  }
+  for (const envelope of elevatedRoadJunctionEnvelopes(surfaces)) {
+    const mesh = envelope.asphaltMesh;
+    addTriangles(
+      mesh.points.flatMap((point) => [point.x, point.elevationM ?? 0, point.z]),
+      mesh.indices,
+    );
+  }
+  return bounds;
+};
 
 /**
  * Samples the same authored centreline the road, collision and elevated-road
@@ -200,6 +274,7 @@ const buildQueensviewCantilever = (
   landmarkId: string,
   axis: CairoBridgeVisualAxis,
   surface: NycRoadSurface,
+  allSurfaces: readonly NycRoadSurface[],
 ): void => {
   const scene = ctx.scene;
   const root = new TransformNode(`${landmarkId}-cantilever-scratch`, scene);
@@ -225,6 +300,7 @@ const buildQueensviewCantilever = (
     new Color3(1.45, 0.58, 0.12),
   );
   const stations = queensviewTrussStations(surface, axis);
+  const pavementBounds = queensviewPavementBounds(allSurfaces, axis);
   const trussLateralM =
     Math.max(axis.widthM, surface.widthM) / 2 +
     QUEENSVIEW_TRUSS_OUTBOARD_GAP_M;
@@ -254,7 +330,41 @@ const buildQueensviewCantilever = (
 
   for (const side of [-1, 1] as const) {
     const lateralM = side * trussLateralM;
-    for (const [index, station] of stations.entries()) {
+    const portalHeight = (start: QueensviewTrussStation, end = start): number => {
+      const margin = QUEENSVIEW_TRUSS_MOUTH_MARGIN_M;
+      let height = 0;
+      for (const pavement of pavementBounds) {
+        if (
+          pavement.maxAlongM < start.alongM - margin ||
+          pavement.minAlongM > end.alongM + margin ||
+          pavement.maxLateralM < lateralM - margin ||
+          pavement.minLateralM > lateralM + margin ||
+          pavement.maxY + QUEENSVIEW_PORTAL_CLEARANCE_M <
+            Math.min(start.lowerY, end.lowerY) - margin ||
+          pavement.minY > Math.max(start.topY, end.topY) + margin
+        ) continue;
+        height = Math.max(height, pavement.maxY + QUEENSVIEW_PORTAL_CLEARANCE_M);
+      }
+      return height;
+    };
+    const panelPortals = stations.slice(1).map((end, index) =>
+      portalHeight(stations[index], end),
+    );
+    const sideStations = stations.map((station, index) => {
+      const headerY = Math.max(
+        panelPortals[index - 1] ?? 0,
+        panelPortals[index] ?? 0,
+      );
+      return {
+        ...station,
+        // Keep full-height jambs where they clear the pavement; shorten only
+        // posts inside the mouth. The continuous upper truss bridges the gap.
+        lowerY: portalHeight(station) > 0 ? headerY : station.lowerY,
+        midY: Math.max(station.midY, headerY),
+        topY: Math.max(station.topY, headerY > 0 ? headerY + 1 : 0),
+      };
+    });
+    for (const [index, station] of sideStations.entries()) {
       // Vertical posts and broad joint plates make the merged silhouette read
       // as riveted heavy steel without modelling thousands of literal rivets.
       addBeam(
@@ -289,15 +399,17 @@ const buildQueensviewCantilever = (
         ),
       );
 
-      const next = stations[index + 1];
+      const next = sideStations[index + 1];
       if (!next) continue;
-      addBeam(
-        `cantilever-lower-chord-${side}-${index}`,
-        [station.alongM, station.lowerY],
-        [next.alongM, next.lowerY],
-        lateralM,
-        0.38,
-      );
+      if (!panelPortals[index]) {
+        addBeam(
+          `cantilever-lower-chord-${side}-${index}`,
+          [station.alongM, station.lowerY],
+          [next.alongM, next.lowerY],
+          lateralM,
+          0.38,
+        );
+      }
       addBeam(
         `cantilever-mid-chord-${side}-${index}`,
         [station.alongM, station.midY],
@@ -312,20 +424,22 @@ const buildQueensviewCantilever = (
         lateralM,
         0.42,
       );
-      // X-bracing above and below the mid chord gives the bridge its dense
-      // double-level cantilever read from both roadway and waterfront.
-      addBeam(
-        `cantilever-lower-diagonal-a-${side}-${index}`,
-        [station.alongM, station.lowerY],
-        [next.alongM, next.midY],
-        lateralM,
-      );
-      addBeam(
-        `cantilever-lower-diagonal-b-${side}-${index}`,
-        [station.alongM, station.midY],
-        [next.alongM, next.lowerY],
-        lateralM,
-      );
+      // Low chords and X-braces stop at complete ramp mouths. Above a mouth,
+      // the mid chord becomes a high lintel carrying the retained upper web.
+      if (!panelPortals[index]) {
+        addBeam(
+          `cantilever-lower-diagonal-a-${side}-${index}`,
+          [station.alongM, station.lowerY],
+          [next.alongM, next.midY],
+          lateralM,
+        );
+        addBeam(
+          `cantilever-lower-diagonal-b-${side}-${index}`,
+          [station.alongM, station.midY],
+          [next.alongM, next.lowerY],
+          lateralM,
+        );
+      }
       addBeam(
         `cantilever-upper-diagonal-a-${side}-${index}`,
         [station.alongM, station.midY],
@@ -452,7 +566,7 @@ export function buildNycLandmark(
     // only the outboard cantilever identity, sampled from that same surface;
     // duplicating the old at-grade portal walls here would overlap the shared
     // barrier and put a second visual collision line at the water crossing.
-    buildQueensviewCantilever(ctx, landmark.id, axis, bridgeSurface);
+    buildQueensviewCantilever(ctx, landmark.id, axis, bridgeSurface, roadSurfaces);
     return true;
   }
   const root = new TransformNode(`${landmark.id}-axis`, scene);

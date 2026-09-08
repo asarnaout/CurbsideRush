@@ -12,6 +12,7 @@ import { buildNycLandmark } from "../app/game/render/nycLandmarks";
 import { buildStaticObstacles } from "../app/game/simulationAdapter";
 import { planMapBuildings } from "../app/game/geometry/buildingLayout";
 import { nearestPointOnPolyline } from "../app/game/geometry/roadStrips";
+import { elevatedRoadJunctionEnvelopes } from "../app/game/geometry/elevatedRoadGeometry";
 import { defaultSidewalkWidthM } from "../app/game/visuals";
 import type { GameCanvasMapPack } from "../app/game/sessionContract";
 
@@ -36,9 +37,9 @@ import type { GameCanvasMapPack } from "../app/game/sessionContract";
  * 3. The cables inherit the pylon lateral verbatim, so their low ends came
  *    down into the roadway at bumper height with them.
  *
- * Everything below is asked in world space against the bridge's own
- * centreline, which is the only frame in which "is it in the road" is a real
- * question.
+ * Everything below is measured in world space against the authored pavement.
+ * Queensview's decorative truss must also clear neighboring ramps and their
+ * widened junctions; testing only its own mainline misses blocked mouths.
  */
 
 const BRIDGE_IDS = ["nyc-queensview-bridge", "nyc-harborline-bridge"] as const;
@@ -67,6 +68,7 @@ interface BuiltBridgeMesh {
   readonly totalVertices: number;
   readonly checkCollisions: boolean;
   readonly worldVertices: readonly Vector3[];
+  readonly indices: readonly number[];
 }
 
 interface BuiltBridge {
@@ -119,6 +121,7 @@ const buildBridges = (): readonly BuiltBridge[] => {
         totalVertices: mesh.getTotalVertices(),
         checkCollisions: mesh.checkCollisions,
         worldVertices,
+        indices: Array.from(mesh.getIndices() ?? []),
       };
     });
     const lateralByName = new Map<string, number>();
@@ -139,6 +142,158 @@ const buildBridges = (): readonly BuiltBridge[] => {
 const namesMatching = (bridge: BuiltBridge, fragment: string): string[] =>
   [...bridge.lateralByName.keys()].filter((name) => name.includes(fragment));
 
+type ClearancePoint = Pick<Vector3, "x" | "y" | "z">;
+
+/**
+ * Clip a rendered triangle against a pitched road or junction clearance prism.
+ * Vertex-only checks miss a long diagonal whose ends both clear a ramp while
+ * its middle cuts through the exit. Clipping also retains intersections with
+ * the interior of a broad face, without depending on an audit sample spacing.
+ */
+const clipClearancePolygon = (
+  polygon: readonly ClearancePoint[],
+  signedDistance: (point: ClearancePoint) => number,
+): readonly ClearancePoint[] => {
+  const clipped: ClearancePoint[] = [];
+  for (let index = 0; index < polygon.length; index += 1) {
+    const start = polygon[index];
+    const end = polygon[(index + 1) % polygon.length];
+    const startDistance = signedDistance(start);
+    const endDistance = signedDistance(end);
+    if (startDistance >= 0) clipped.push(start);
+    if ((startDistance >= 0) === (endDistance >= 0)) continue;
+    const amount = startDistance / (startDistance - endDistance);
+    clipped.push({
+      x: start.x + (end.x - start.x) * amount,
+      y: start.y + (end.y - start.y) * amount,
+      z: start.z + (end.z - start.z) * amount,
+    });
+  }
+  return clipped;
+};
+
+const roadSegmentClearancePrisms = (NYC_MAP_PACK.geometry.roadSurfaces ?? []).flatMap(
+  (surface) => surface.centerline.slice(1).flatMap((end, index) => {
+    const start = surface.centerline[index];
+    const lengthM = Math.hypot(end.x - start.x, end.z - start.z);
+    if (lengthM <= 0.001) return [];
+    const ux = (end.x - start.x) / lengthM;
+    const uz = (end.z - start.z) / lengthM;
+    const startElevationM = start.elevationM ?? 0;
+    const endElevationM = end.elevationM ?? 0;
+    const grade = (endElevationM - startElevationM) / lengthM;
+    // Exclude only floating-point contacts with the edge or asphalt itself.
+    const halfWidthM = surface.widthM / 2 - 0.01;
+    const along = (point: ClearancePoint) =>
+      (point.x - start.x) * ux + (point.z - start.z) * uz;
+    const lateral = (point: ClearancePoint) =>
+      -(point.x - start.x) * uz + (point.z - start.z) * ux;
+    const aboveRoad = (point: ClearancePoint) =>
+      point.y - startElevationM - along(point) * grade;
+    return [{
+      surfaceId: surface.id,
+      minX: Math.min(start.x, end.x) - Math.abs(uz) * halfWidthM,
+      maxX: Math.max(start.x, end.x) + Math.abs(uz) * halfWidthM,
+      minZ: Math.min(start.z, end.z) - Math.abs(ux) * halfWidthM,
+      maxZ: Math.max(start.z, end.z) + Math.abs(ux) * halfWidthM,
+      minY: Math.min(startElevationM, endElevationM),
+      maxY: Math.max(startElevationM, endElevationM) +
+        QUEENSVIEW_TEST_OVERHEAD_CLEARANCE_M,
+      faces: [
+        along,
+        (point: ClearancePoint) => lengthM - along(point),
+        (point: ClearancePoint) => halfWidthM - lateral(point),
+        (point: ClearancePoint) => halfWidthM + lateral(point),
+        (point: ClearancePoint) => aboveRoad(point) - 0.01,
+        (point: ClearancePoint) => QUEENSVIEW_TEST_OVERHEAD_CLEARANCE_M - aboveRoad(point),
+      ],
+    }];
+  }),
+);
+
+const junctionClearancePrisms = elevatedRoadJunctionEnvelopes(
+  NYC_MAP_PACK.geometry.roadSurfaces ?? [],
+).flatMap((envelope) => {
+  const { points, indices } = envelope.asphaltMesh;
+  const prisms = [];
+  for (let offset = 0; offset + 2 < indices.length; offset += 3) {
+    const triangle = indices.slice(offset, offset + 3).map((index) => ({
+      ...points[index],
+      y: points[index].elevationM ?? 0,
+    }));
+    const [a, b, c] = triangle;
+    const abX = b.x - a.x;
+    const abZ = b.z - a.z;
+    const acX = c.x - a.x;
+    const acZ = c.z - a.z;
+    const determinant = abX * acZ - abZ * acX;
+    if (Math.abs(determinant) < 1e-8) continue;
+    const winding = Math.sign(determinant);
+    const gradeX = ((b.y - a.y) * acZ - abZ * (c.y - a.y)) / determinant;
+    const gradeZ = (abX * (c.y - a.y) - (b.y - a.y) * acX) / determinant;
+    const aboveRoad = (point: ClearancePoint) =>
+      point.y - a.y - (point.x - a.x) * gradeX - (point.z - a.z) * gradeZ;
+    prisms.push({
+      surfaceId: envelope.id,
+      minX: Math.min(...triangle.map((point) => point.x)),
+      maxX: Math.max(...triangle.map((point) => point.x)),
+      minZ: Math.min(...triangle.map((point) => point.z)),
+      maxZ: Math.max(...triangle.map((point) => point.z)),
+      minY: Math.min(...triangle.map((point) => point.y)),
+      maxY: Math.max(...triangle.map((point) => point.y)) +
+        QUEENSVIEW_TEST_OVERHEAD_CLEARANCE_M,
+      faces: [
+        ...triangle.map((start, index) => {
+          const end = triangle[(index + 1) % triangle.length];
+          const lengthM = Math.hypot(end.x - start.x, end.z - start.z);
+          return (point: ClearancePoint) => winding * (
+            (end.x - start.x) * (point.z - start.z) -
+            (end.z - start.z) * (point.x - start.x)
+          ) / lengthM;
+        }),
+        (point: ClearancePoint) => aboveRoad(point) - 0.01,
+        (point: ClearancePoint) => QUEENSVIEW_TEST_OVERHEAD_CLEARANCE_M - aboveRoad(point),
+      ],
+    });
+  }
+  return prisms;
+});
+
+const roadClearancePrisms = [
+  ...roadSegmentClearancePrisms,
+  ...junctionClearancePrisms,
+];
+
+const queensviewRoadClearanceViolations = (
+  meshes: readonly BuiltBridgeMesh[],
+): readonly string[] => {
+  const violations = new Set<string>();
+  for (const mesh of meshes) {
+    for (let offset = 0; offset + 2 < mesh.indices.length; offset += 3) {
+      const triangle = mesh.indices.slice(offset, offset + 3)
+        .map((index) => mesh.worldVertices[index]);
+      const minX = Math.min(...triangle.map((point) => point.x));
+      const maxX = Math.max(...triangle.map((point) => point.x));
+      const minY = Math.min(...triangle.map((point) => point.y));
+      const maxY = Math.max(...triangle.map((point) => point.y));
+      const minZ = Math.min(...triangle.map((point) => point.z));
+      const maxZ = Math.max(...triangle.map((point) => point.z));
+      for (const prism of roadClearancePrisms) {
+        if (maxX < prism.minX || minX > prism.maxX ||
+          maxY < prism.minY || minY > prism.maxY ||
+          maxZ < prism.minZ || minZ > prism.maxZ) continue;
+        let clipped: readonly ClearancePoint[] = triangle;
+        for (const face of prism.faces) {
+          clipped = clipClearancePolygon(clipped, face);
+          if (!clipped.length) break;
+        }
+        if (clipped.length) violations.add(`${mesh.name}: ${prism.surfaceId}`);
+      }
+    }
+  }
+  return [...violations].sort();
+};
+
 const queensviewVerticalRangesWithOffset = (
   elevationOffsetM: number,
 ): ReadonlyMap<string, readonly [number, number]> => {
@@ -146,14 +301,21 @@ const queensviewVerticalRangesWithOffset = (
     ...NYC_MAP_PACK,
     geometry: {
       ...NYC_MAP_PACK.geometry,
+      // Lift the complete high bridge network, including ramp mouths at the
+      // deck. Ease that offset to zero below 5m so ground contacts remain at
+      // grade instead of becoming artificial elevated junctions in the fixture.
       roadSurfaces: (NYC_MAP_PACK.geometry.roadSurfaces ?? []).map((surface) =>
-        surface.id === "nyc-queensview-bridge"
+        surface.id.startsWith("nyc-queensview-")
           ? {
               ...surface,
-              centerline: surface.centerline.map((point) => ({
-                ...point,
-                elevationM: (point.elevationM ?? 0) + elevationOffsetM,
-              })),
+              centerline: surface.centerline.map((point) => {
+                const elevationM = point.elevationM ?? 0;
+                return {
+                  ...point,
+                  elevationM: elevationM +
+                    elevationOffsetM * Math.min(1, elevationM / 5),
+                };
+              }),
             }
           : surface,
       ),
@@ -372,5 +534,19 @@ describe("NYC bridge decks", () => {
         5,
       );
     }
+  });
+
+  it("keeps the complete Queensview lattice, lights and piers clear of every road, ramp and collar", () => {
+    // These two mouths pass through the south truss plane. Testing only the
+    // mainline's width called that steel safely outboard while players drove
+    // through its lower chords, verticals and X-brace interiors to use a ramp.
+    expect(roadClearancePrisms.some((prism) =>
+      prism.surfaceId === "nyc-queensview-manhattan-third-entry-ramp",
+    )).toBe(true);
+    expect(roadClearancePrisms.some((prism) =>
+      prism.surfaceId === "nyc-queensview-queens-vernon-exit-ramp",
+    )).toBe(true);
+    expect(junctionClearancePrisms.length).toBeGreaterThan(0);
+    expect(queensviewRoadClearanceViolations(queensview.meshes)).toEqual([]);
   });
 });
